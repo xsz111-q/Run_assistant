@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Synapse Run · 跑步训练多智能体分析</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f4f6fa; color: #222; padding: 24px;
+    }
+    header {
+      max-width: 1100px; margin: 0 auto 28px;
+      display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    header h1 { font-size: 26px; font-weight: 600; }
+    header p  { color: #777; margin-top: 6px; font-size: 14px; }
+    header nav a {
+      display: inline-block; margin-top: 8px;
+      padding: 6px 14px; border-radius: 6px; background: #eef2ff;
+      color: #4338ca; text-decoration: none; font-size: 13px; font-weight: 500;
+    }
+    header nav a:hover { background: #e0e7ff; }
+
+    main { max-width: 1100px; margin: 0 auto; }
+
+    /* 提问区 */
+    .ask-card {
+      background: #fff; border-radius: 12px; padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 20px;
+    }
+    .ask-card h2 { font-size: 17px; margin-bottom: 12px; }
+    textarea {
+      width: 100%; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 12px; font-size: 14px; font-family: inherit; resize: vertical;
+      min-height: 80px; outline: none;
+    }
+    textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+    .ask-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+    button.ask-btn {
+      background: #4f46e5; color: #fff; border: none; border-radius: 8px;
+      padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    button.ask-btn:hover { background: #4338ca; }
+    button.ask-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+    .hint { font-size: 12px; color: #999; margin-left: auto; }
+
+    /* 进度区 */
+    .progress-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) { .progress-grid { grid-template-columns: 1fr; } }
+    .eng-card {
+      background: #fff; border-radius: 12px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+      border-top: 3px solid #e5e7eb;
+    }
+    .eng-card .title { font-size: 14px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .eng-card .status { font-size: 12px; color: #888; }
+    .eng-card.pending { border-top-color: #e5e7eb; }
+    .eng-card.running { border-top-color: #f59e0b; }
+    .eng-card.done    { border-top-color: #22c55e; }
+    .eng-card.error   { border-top-color: #ef4444; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 500;
+    }
+    .badge.pending { background: #f3f4f6; color: #6b7280; }
+    .badge.running { background: #fef3c7; color: #b45309; }
+    .badge.done    { background: #dcfce7; color: #15803d; }
+    .badge.error   { background: #fee2e2; color: #b91c1c; }
+
+    /* 报告区 */
+    .reports-area h2 { font-size: 17px; margin-bottom: 10px; }
+    .report-card {
+      background: #fff; border-radius: 12px; padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px;
+      display: none;
+    }
+    .report-card.show { display: block; }
+    .report-card h3 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .report-body {
+      font-size: 14px; line-height: 1.7; color: #333;
+      max-height: 500px; overflow-y: auto;
+      border-top: 1px solid #f1f5f9; padding-top: 14px;
+    }
+    .report-body h1 { font-size: 20px; margin-bottom: 10px; }
+    .report-body h2 { font-size: 16px; margin: 14px 0 8px; }
+    .report-body h3 { font-size: 14px; margin: 10px 0 6px; }
+    .report-body p { margin: 6px 0; }
+    .report-body ul, .report-body ol { padding-left: 20px; margin: 6px 0; }
+    .report-body code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
+
+    footer { margin-top: 40px; text-align: center; color: #aaa; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🏃‍♂️ Synapse Run · 跑步训练智能分析</h1>
+    <p>三个 AI Agent 协作：运动科学家 · 理论专家 · 实用情报</p>
+  </div>
+  <nav>
+    <a href="/training/">📂 训练数据管理</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- 提问卡 -->
+  <div class="ask-card">
+    <h2>🎯 提出你的问题</h2>
+    <textarea id="queryInput" placeholder="例如：如何提升 10 公里跑成绩？我下周要跑无锡马拉松，有什么注意事项？"></textarea>
+    <div class="ask-row">
+      <button class="ask-btn" id="askBtn">🚀 开始三引擎协作分析</button>
+      <span class="hint">一次约 1~3 分钟 · 三个引擎顺序运行</span>
+    </div>
+  </div>
+
+  <!-- 进度卡 -->
+  <div class="progress-grid">
+    <div class="eng-card pending" id="card-insight">
+      <div class="title">📊 InsightEngine · 运动科学家 <span class="badge pending" id="badge-insight">等待中</span></div>
+      <div class="status" id="status-insight">查本地训练数据库，分析运动表现</div>
+    </div>
+    <div class="eng-card pending" id="card-query">
+      <div class="title">🎓 QueryEngine · 理论专家 <span class="badge pending" id="badge-query">等待中</span></div>
+      <div class="status" id="status-query">Tavily 学术搜索，研究训练科学</div>
+    </div>
+    <div class="eng-card pending" id="card-media">
+      <div class="title">🧭 MediaEngine · 实用情报 <span class="badge pending" id="badge-media">等待中</span></div>
+      <div class="status" id="status-media">博查多模态搜索：赛事/装备/路线</div>
+    </div>
+  </div>
+
+  <!-- 报告区 -->
+  <div class="reports-area">
+    <h2>📄 各引擎报告</h2>
+    <div class="report-card" id="report-insight">
+      <h3>📊 InsightEngine · 运动科学家分析报告</h3>
+      <div class="report-body" id="body-insight"></div>
+    </div>
+    <div class="report-card" id="report-query">
+      <h3>🎓 QueryEngine · 理论研究报告</h3>
+      <div class="report-body" id="body-query"></div>
+    </div>
+    <div class="report-card" id="report-media">
+      <h3>🧭 MediaEngine · 实用情报报告</h3>
+      <div class="report-body" id="body-media"></div>
+    </div>
+  </div>
+
+</main>
+
+<footer>Synapse Run — 跑步训练多智能体协作分析系统</footer>
+
+<script>
+const ENGINES = ["insight", "query", "media"];
+let currentTaskId = null;
+let pollTimer = null;
+
+document.getElementById("askBtn").onclick = async () => {
+  const q = document.getElementById("queryInput").value.trim();
+  if (!q) { alert("请先输入问题"); return; }
+
+  document.getElementById("askBtn").disabled = true;
+  document.getElementById("askBtn").textContent = "⏳ 分析中...";
+  resetCards();
+
+  const r = await fetch("/api/ask", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({query: q}),
+  });
+  const data = await r.json();
+  if (data.error) { alert(data.error); resetBtn(); return; }
+  currentTaskId = data.task_id;
+  pollTimer = setInterval(pollStatus, 2500);
+};
+
+function resetBtn() {
+  const b = document.getElementById("askBtn");
+  b.disabled = false; b.textContent = "🚀 开始三引擎协作分析";
+}
+
+function resetCards() {
+  ENGINES.forEach(k => {
+    const c = document.getElementById("card-" + k);
+    const b = document.getElementById("badge-" + k);
+    c.className = "eng-card pending";
+    b.className = "badge pending"; b.textContent = "等待中";
+    document.getElementById("report-" + k).classList.remove("show");
+    document.getElementById("body-" + k).innerHTML = "";
+  });
+}
+
+async function pollStatus() {
+  if (!currentTaskId) return;
+  const r = await fetch("/api/task/" + currentTaskId);
+  const data = await r.json();
+
+  ENGINES.forEach(k => {
+    const eng = data.engines[k];
+    const c = document.getElementById("card-" + k);
+    const b = document.getElementById("badge-" + k);
+    c.className = "eng-card " + eng.status;
+    b.className = "badge " + eng.status;
+    b.textContent = {pending: "等待中", running: "运行中…", done: "✅ 完成", error: "❌ 失败"}[eng.status] || eng.status;
+  });
+
+  if (data.status === "done" || data.status === "cancelled" || data.status === "error") {
+    clearInterval(pollTimer);
+    // 拉三份报告内容
+    ENGINES.forEach(k => fetchReport(k));
+    resetBtn();
+  }
+}
+
+async function fetchReport(key) {
+  try {
+    const r = await fetch("/api/report/" + key);
+    if (!r.ok) return;
+    const d = await r.json();
+    const card = document.getElementById("report-" + key);
+    const body = document.getElementById("body-" + key);
+    // 简单 Markdown → HTML：保留段落换行
+    body.innerHTML = d.content
+      .replace(/^# (.*)$/gm, '<h1>$1</h1>')
+      .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+      .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^> (.*)$/gm, '<blockquote>$1</blockquote>')
+      .replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+    card.classList.add("show");
+  } catch(e) { console.warn(e); }
+}
+</script>
+
+</body>
+</html>
