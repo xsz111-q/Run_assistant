@@ -1,24 +1,26 @@
 # -*- coding: utf-8 -*-
-"""
-训练数据管理路由（Iter 1 简化版 — 搬自 original_project，去掉 Garmin 同步和热重载依赖）
+"""训练数据管理路由（Iter 2）
+
+数据层只有本地 Excel 一条路径：
+  - 页面上传 .xlsx → /training/api/import-excel
+  - 扫描 data/ 目录 → /training/api/import-excel-dir
+记录本身仍支持增删改查。
 """
 
-from flask import Blueprint, render_template, request, jsonify
-from datetime import datetime
-from models.training_record import TrainingRecordManager, SessionLocal
-import json
-import time
-import sys
 import os
+import sys
+import tempfile
+import time
+from datetime import datetime
+
+from flask import Blueprint, render_template, request, jsonify
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+from models.training_record import SessionLocal, TrainingRecordExcel
+from utils.excel_importer import import_files
 
 training_data_bp = Blueprint('training_data', __name__, url_prefix='/training')
-
-
-def get_record_manager():
-    return TrainingRecordManager(data_source=config.TRAINING_DATA_SOURCE)
 
 
 @training_data_bp.route('/')
@@ -26,32 +28,34 @@ def index():
     return render_template('training_data.html')
 
 
+# ---------------- 记录查询 ----------------
 @training_data_bp.route('/api/records', methods=['GET'])
 def get_records():
-    """获取所有训练记录"""
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 20))
+    keyword = (request.args.get('q') or '').strip()
+
     session = SessionLocal()
     try:
-        # 获取分页参数
-        page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 20))
+        query = session.query(TrainingRecordExcel)
+        if keyword:
+            if keyword.isdigit():
+                query = query.filter(TrainingRecordExcel.id == int(keyword))
+            else:
+                query = query.filter(TrainingRecordExcel.exercise_type.like(f'%{keyword}%'))
 
-        # 查询总数
-        total = get_record_manager().query(session).count()
-
-        # 分页查询
-        start_time_field = get_record_manager().get_field('start_time')
-        records = get_record_manager().query(session)\
-            .order_by(start_time_field.desc())\
-            .limit(per_page)\
-            .offset((page - 1) * per_page)\
-            .all()
+        total = query.count()
+        records = (query.order_by(TrainingRecordExcel.start_time.desc())
+                   .limit(per_page)
+                   .offset((page - 1) * per_page)
+                   .all())
 
         return jsonify({
             'success': True,
-            'data': [record.to_dict() for record in records],
+            'data': [r.to_dict() for r in records],
             'total': total,
             'page': page,
-            'per_page': per_page
+            'per_page': per_page,
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -61,43 +65,21 @@ def get_records():
 
 @training_data_bp.route('/api/record', methods=['POST'])
 def add_record():
-    """添加训练记录"""
     session = SessionLocal()
     try:
         data = request.get_json()
-
-        # 验证必填字段
-        required_fields = ['exercise_type', 'duration_seconds', 'start_time', 'end_time']
-        for field in required_fields:
+        for field in ('exercise_type', 'duration_seconds', 'start_time', 'end_time'):
             if field not in data:
                 return jsonify({'success': False, 'message': f'缺少必填字段: {field}'}), 400
 
-        # 解析时间
         try:
             start_time = datetime.strptime(data['start_time'], '%Y-%m-%d %H:%M:%S')
             end_time = datetime.strptime(data['end_time'], '%Y-%m-%d %H:%M:%S')
         except ValueError as e:
-            return jsonify({'success': False, 'message': f'时间格式错误: {str(e)}'}), 400
+            return jsonify({'success': False, 'message': f'时间格式错误: {e}'}), 400
 
-        # 处理心率数据
-        heart_rate_data = None
-        hr_input = data.get('heart_rate_data')
-        # 只有在用户实际输入了有效内容时才处理
-        if hr_input and str(hr_input).strip():
-            try:
-                # 如果是字符串,尝试解析为列表
-                if isinstance(hr_input, str):
-                    heart_rate_list = json.loads(hr_input)
-                else:
-                    heart_rate_list = hr_input
-                heart_rate_data = json.dumps(heart_rate_list)
-            except Exception as e:
-                return jsonify({'success': False, 'message': f'心率数据格式错误: {str(e)}'}), 400
-        # 否则heart_rate_data保持为None,数据库会存储为NULL
-
-        # 创建记录
-        current_ts = int(time.time())
-        record = get_record_manager().create_record(
+        now_ts = int(time.time())
+        record = TrainingRecordExcel(
             user_id=data.get('user_id', 'default_user'),
             exercise_type=data['exercise_type'],
             duration_seconds=int(data['duration_seconds']),
@@ -107,42 +89,30 @@ def add_record():
             distance_meters=float(data['distance_meters']) if data.get('distance_meters') else None,
             avg_heart_rate=int(data['avg_heart_rate']) if data.get('avg_heart_rate') else None,
             max_heart_rate=int(data['max_heart_rate']) if data.get('max_heart_rate') else None,
-            heart_rate_data=heart_rate_data,
-            add_ts=current_ts,
-            last_modify_ts=current_ts,
-            data_source=data.get('data_source', 'manual_import')
+            add_ts=now_ts,
+            last_modify_ts=now_ts,
+            data_source=data.get('data_source', 'manual_import'),
         )
-
         session.add(record)
         session.commit()
         session.refresh(record)
 
-        return jsonify({
-            'success': True,
-            'message': '添加成功',
-            'data': record.to_dict()
-        })
+        return jsonify({'success': True, 'message': '添加成功', 'data': record.to_dict()})
     except Exception as e:
         session.rollback()
-        return jsonify({'success': False, 'message': f'添加失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'添加失败: {e}'}), 500
     finally:
         session.close()
 
 
 @training_data_bp.route('/api/record/<int:record_id>', methods=['GET'])
 def get_record(record_id):
-    """获取单个训练记录"""
     session = SessionLocal()
     try:
-        Model = get_record_manager().get_model_class()
-        record = get_record_manager().query(session).filter(Model.id == record_id).first()
+        record = session.query(TrainingRecordExcel).filter(TrainingRecordExcel.id == record_id).first()
         if not record:
             return jsonify({'success': False, 'message': '记录不存在'}), 404
-
-        return jsonify({
-            'success': True,
-            'data': record.to_dict()
-        })
+        return jsonify({'success': True, 'data': record.to_dict()})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
@@ -151,17 +121,13 @@ def get_record(record_id):
 
 @training_data_bp.route('/api/record/<int:record_id>', methods=['PUT'])
 def update_record(record_id):
-    """更新训练记录"""
     session = SessionLocal()
     try:
-        Model = get_record_manager().get_model_class()
-        record = get_record_manager().query(session).filter(Model.id == record_id).first()
+        record = session.query(TrainingRecordExcel).filter(TrainingRecordExcel.id == record_id).first()
         if not record:
             return jsonify({'success': False, 'message': '记录不存在'}), 404
 
         data = request.get_json()
-
-        # 更新字段
         if 'user_id' in data:
             record.user_id = data['user_id']
         if 'exercise_type' in data:
@@ -180,87 +146,50 @@ def update_record(record_id):
             record.avg_heart_rate = int(data['avg_heart_rate']) if data['avg_heart_rate'] else None
         if 'max_heart_rate' in data:
             record.max_heart_rate = int(data['max_heart_rate']) if data['max_heart_rate'] else None
-        if 'heart_rate_data' in data:
-            hr_input = data['heart_rate_data']
-            # 只有在用户实际输入了有效内容时才处理
-            if hr_input and str(hr_input).strip():
-                if isinstance(hr_input, str):
-                    heart_rate_list = json.loads(hr_input)
-                else:
-                    heart_rate_list = hr_input
-                record.heart_rate_data = json.dumps(heart_rate_list)
-            else:
-                # 用户清空了心率数据,设置为None(数据库存储为NULL)
-                record.heart_rate_data = None
         if 'data_source' in data:
             record.data_source = data['data_source']
 
         record.last_modify_ts = int(time.time())
-
         session.commit()
         session.refresh(record)
 
-        return jsonify({
-            'success': True,
-            'message': '更新成功',
-            'data': record.to_dict()
-        })
+        return jsonify({'success': True, 'message': '更新成功', 'data': record.to_dict()})
     except Exception as e:
         session.rollback()
-        return jsonify({'success': False, 'message': f'更新失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'更新失败: {e}'}), 500
     finally:
         session.close()
 
 
 @training_data_bp.route('/api/record/<int:record_id>', methods=['DELETE'])
 def delete_record(record_id):
-    """删除训练记录"""
     session = SessionLocal()
     try:
-        Model = get_record_manager().get_model_class()
-        record = get_record_manager().query(session).filter(Model.id == record_id).first()
+        record = session.query(TrainingRecordExcel).filter(TrainingRecordExcel.id == record_id).first()
         if not record:
             return jsonify({'success': False, 'message': '记录不存在'}), 404
-
         session.delete(record)
         session.commit()
-
-        return jsonify({
-            'success': True,
-            'message': '删除成功'
-        })
+        return jsonify({'success': True, 'message': '删除成功'})
     except Exception as e:
         session.rollback()
-        return jsonify({'success': False, 'message': f'删除失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'删除失败: {e}'}), 500
     finally:
         session.close()
 
 
 @training_data_bp.route('/api/exercise_types', methods=['GET'])
 def get_exercise_types():
-    """获取所有运动类型"""
     session = SessionLocal()
     try:
-        # 从数据库中查询所有不同的运动类型
-        exercise_type_field = get_record_manager().get_field('exercise_type')
-        exercise_types = get_record_manager().query(session)\
-            .with_entities(exercise_type_field)\
-            .distinct()\
-            .order_by(exercise_type_field)\
-            .all()
-
-        types_list = [et[0] for et in exercise_types]
-
-        # 添加常见运动类型
-        common_types = ['跑步', '骑行', '游泳', '健走', '爬山', '徒步', '瑜伽', '力量训练', '篮球', '足球', '羽毛球', '网球', '乒乓球']
-        for ct in common_types:
+        types_list = [t[0] for t in session.query(TrainingRecordExcel.exercise_type)
+                      .distinct().order_by(TrainingRecordExcel.exercise_type).all()]
+        common = ['跑步', '骑行', '游泳', '健走', '爬山', '徒步', '瑜伽',
+                  '力量训练', '篮球', '足球', '羽毛球', '网球', '乒乓球']
+        for ct in common:
             if ct not in types_list:
                 types_list.append(ct)
-
-        return jsonify({
-            'success': True,
-            'data': types_list
-        })
+        return jsonify({'success': True, 'data': types_list})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
@@ -269,62 +198,41 @@ def get_exercise_types():
 
 @training_data_bp.route('/api/data_sources', methods=['GET'])
 def get_data_sources():
-    """获取所有数据来源"""
-    sources = [
-        'manual_import',
-        'excel_import',
-        'garmin_connect',
-        'strava',
-        'keep',
-        'nike_run_club',
-        'adidas_running',
-        'apple_health',
-        'xiaomi_health',
-        'huawei_health'
-    ]
-
-    return jsonify({
-        'success': True,
-        'data': sources
-    })
+    return jsonify({'success': True, 'data': ['manual_import', 'excel_import']})
 
 
-@training_data_bp.route('/api/current_source', methods=['GET'])
-def get_current_source():
-    """获取当前使用的数据源"""
-    return jsonify({
-        'success': True,
-        'data': {
-            'source': get_record_manager().data_source,
-            'available_sources': list(get_record_manager().DATA_SOURCE_MAP.keys())
-        }
-    })
+# ---------------- Excel 导入 ----------------
+@training_data_bp.route('/api/import-excel', methods=['POST'])
+def import_excel():
+    """上传一个 .xlsx 并导入"""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': '没有收到文件'}), 400
+    f = request.files['file']
+    if not f.filename:
+        return jsonify({'success': False, 'message': '文件名为空'}), 400
+    if not f.filename.lower().endswith(config.EXCEL_ALLOWED_EXT):
+        return jsonify({'success': False, 'message': f'只支持 {config.EXCEL_ALLOWED_EXT} 文件'}), 400
 
-
-@training_data_bp.route('/api/switch_source', methods=['POST'])
-def switch_source():
-    """切换数据源"""
+    tmp_path = None
     try:
-        data = request.get_json()
-        new_source = data.get('source')
-
-        if not new_source:
-            return jsonify({'success': False, 'message': '缺少source参数'}), 400
-
-        get_record_manager().switch_source(new_source)
-
+        fd, tmp_path = tempfile.mkstemp(suffix=config.EXCEL_ALLOWED_EXT)
+        os.close(fd)
+        f.save(tmp_path)
+        result = import_files([tmp_path])
         return jsonify({
             'success': True,
-            'message': f'数据源已切换到: {new_source}',
-            'data': {
-                'source': get_record_manager().data_source,
-                'model_class': get_record_manager().get_model_class().__name__
-            }
+            'message': f"导入完成：新增 {result['added']} 条，跳过重复 {result['skipped']} 条",
+            **result,
         })
-    except ValueError as e:
-        return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
-        return jsonify({'success': False, 'message': f'切换失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'导入失败: {e}'}), 500
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
-# sync_garmin_data 接口移到 Iter 2 再补（依赖 garminconnect 包 + 导入器脚本）
+# 注：扫描 data/ 目录的入口已从页面移除（Iter 2 数据层 = 页面上传 Excel）
+

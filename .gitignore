@@ -11,7 +11,9 @@ env/
 
 # 运行产物
 reports/*.md
-logs/*.log
+logs/
+*_engine_streamlit_reports/
+data/*.xlsx
 
 # IDE
 .idea/

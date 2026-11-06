@@ -1,24 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-Run_assistant 配置文件（Iter 1 原型）
+Run_assistant 配置文件示例（Iter 2）
+复制为 config.py 后填入自己的 Key
 """
 
 # ============================== 数据库配置 ==============================
 DB_HOST = "localhost"
 DB_PORT = 3306
 DB_USER = "root"
-DB_PASSWORD = "xsz050108"
+DB_PASSWORD = ""
 DB_NAME = "run"
 DB_CHARSET = "utf8mb4"
-TRAINING_DATA_SOURCE = "keep"   # 目前 Iter 1 只做 keep，garmin 留到后面
+
+# ============================== 数据层（仅本地 Excel） ==============================
+TRAINING_TABLE = "training_records_excel"
+EXCEL_DATA_DIR = "data"
+EXCEL_ALLOWED_EXT = ".xlsx"
 
 # ============================== LLM 配置 ==============================
-# DashScope 兼容接口
 LLM_API_KEY = ""
 LLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-DEFAULT_MODEL_NAME = "qwen-plus-latest"   # 三个子引擎通用
-REPORT_MODEL_NAME  = "qwen-max-3"         # 报告生成专用（Iter 2 用）
+DEFAULT_MODEL_NAME = "qwen-plus-latest"
+REPORT_MODEL_NAME  = "qwen-max-3"
 
 # ============================== 搜索 API ==============================
 TAVILY_API_KEY    = ""
@@ -31,11 +35,24 @@ STREAMLIT_QUERY   = 8502
 STREAMLIT_MEDIA   = 8503
 
 # ============================== 裁剪后的引擎参数 ==============================
-# 每个引擎的段落数（Iter 1 砍到 2）
 PARAGRAPHS_PER_ENGINE = 2
-# 反思轮数（Iter 1 砍掉，直接 0）
 MAX_REFLECTIONS = 0
 
 # ============================== 输出目录 ==============================
+INSIGHT_REPORTS_DIR = "insight_engine_streamlit_reports"
+QUERY_REPORTS_DIR   = "query_engine_streamlit_reports"
+MEDIA_REPORTS_DIR   = "media_engine_streamlit_reports"
+
 REPORTS_DIR = "reports"
 LOGS_DIR    = "logs"
+
+# ============================== 论坛 / 运行态 ==============================
+FORUM_LOG = "logs/forum.log"
+HOST_SPEECH_FILE = "logs/host_speech.md"
+RUNTIME_DIR = "logs/runtime"
+
+# ============================== 进程与超时 ==============================
+ENGINE_STARTUP_TIMEOUT = 60
+ENGINE_TIMEOUT = 900
+STATUS_POLL_INTERVAL = 1.0
+FORUM_TAIL_INTERVAL = 0.5

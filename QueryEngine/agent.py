@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""QueryEngine 极简版（Iter 1 裁剪后）
+"""QueryEngine（Iter 2）
 
-理论专家 — Tavily 学术搜索，骨架同 InsightEngine，数据源换成 Tavily
-LLM 调用量同上：6 次
+理论专家 —— Tavily 学术搜索，骨架同 InsightEngine，数据源换成 Tavily。
+Iter 2 新增：research() 签名、运行态写入、论坛发言。
 """
 
 import sys
@@ -13,40 +13,109 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
 import config
+from utils.engine_runtime import write_status, append_phase
+from ForumEngine.monitor import append_post
+
 from openai import OpenAI
 from tavily import TavilyClient
 
 
 class TheoryExpertAgent:
+    ENGINE_KEY = "query"
     ENGINE_NAME = "QueryEngine"
     OUTPUT_FILE = "query_report.md"
+    REPORT_DIR = config.QUERY_REPORTS_DIR
 
     def __init__(self):
         self.llm = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
         self.tavily = TavilyClient(api_key=config.TAVILY_API_KEY)
 
+    # ---------- 对外入口 ----------
     def run(self, query: str, output_dir: str = None) -> str:
-        out_dir = Path(output_dir) if output_dir else _ROOT / config.REPORTS_DIR
+        return self._research(query, "", None, output_dir)
+
+    def research(self, query: str, guidance_from_host: str = "",
+                 task_id: str = None, output_dir: str = None) -> str:
+        return self._research(query, guidance_from_host, task_id, output_dir)
+
+    # ---------- 主流程 ----------
+    def _research(self, query, guidance_from_host, task_id, output_dir) -> str:
+        out_dir = Path(output_dir) if output_dir else _ROOT / self.REPORT_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / self.OUTPUT_FILE
+        fname = f"query_report_{task_id}.md" if task_id else self.OUTPUT_FILE
+        out_file = out_dir / fname
 
         print(f"[{self.ENGINE_NAME}] 开始理论研究: {query}")
+        self._task_id = task_id
+        self._status(task_id, status="running", progress=5,
+                     stage="规划研究段落", query=query, report_path="")
+        self._phase(f"收到问题：{query}")
 
-        paragraphs = self._plan_paragraphs(query)
-        print(f"[{self.ENGINE_NAME}] 规划段落: {paragraphs}")
+        try:
+            paragraphs = self._plan_paragraphs(query)
+            self._status(task_id, progress=15, stage=f"已规划 {len(paragraphs)} 个研究段落")
+            self._phase("研究段落规划完成：" + "；".join(paragraphs))
 
-        summaries = []
-        for i, para_title in enumerate(paragraphs, 1):
-            print(f"[{self.ENGINE_NAME}] 段落 {i}/{len(paragraphs)}: {para_title}")
-            summary = self._analyze_one_paragraph(query, para_title)
-            summaries.append(f"## {para_title}\n\n{summary}")
+            summaries = []
+            total = max(len(paragraphs), 1)
+            for i, para_title in enumerate(paragraphs, 1):
+                self._status(task_id, progress=15 + int(65 * i / total),
+                             stage=f"检索文献 {i}/{total}：{para_title}")
+                print(f"[{self.ENGINE_NAME}] 段落 {i}/{total}: {para_title}")
+                summary = self._analyze_one_paragraph(query, para_title)
+                summaries.append(f"## {para_title}\n\n{summary}")
 
-        full = self._final_report(query, summaries)
-        out_file.write_text(full, encoding="utf-8")
-        print(f"[{self.ENGINE_NAME}] 报告已写入: {out_file}")
-        return str(out_file)
+            self._status(task_id, progress=85, stage="汇总生成报告")
+            self._phase("开始汇总生成完整报告…")
+            full = self._final_report(query, summaries, guidance_from_host)
+            out_file.write_text(full, encoding="utf-8")
+            print(f"[{self.ENGINE_NAME}] 报告已写入: {out_file}")
 
-    # ---------- 节点 ----------
+            self._status(task_id, status="done", progress=100,
+                         stage="研究完成", report_path=str(out_file))
+            self._post_to_forum(query, summaries, out_file, task_id)
+            return str(out_file)
+        except Exception as e:
+            self._status(task_id, status="error", stage="研究失败",
+                         error=f"{type(e).__name__}: {e}")
+            raise
+
+    # ---------- 辅助 ----------
+    def _status(self, task_id, **fields):
+        if not task_id:
+            return
+        try:
+            write_status(self.ENGINE_KEY, task_id, **fields)
+        except Exception as e:
+            print(f"[{self.ENGINE_NAME}] 写运行态失败: {e}")
+
+    def _phase(self, text: str):
+        tid = getattr(self, "_task_id", None)
+        if not tid:
+            return
+        try:
+            append_phase(self.ENGINE_KEY, tid, text)
+        except Exception as e:
+            print(f"[{self.ENGINE_NAME}] 写阶段日志失败: {e}")
+
+    def _post_to_forum(self, query, summaries, out_file, task_id):
+        if not task_id:
+            return
+        digest = "；".join(
+            s.split("\n\n", 1)[-1].replace("\n", " ")[:150] for s in summaries
+        )
+        try:
+            append_post(
+                agent=self.ENGINE_KEY,
+                content=f"针对「{query}」的文献研究已完成：{digest}",
+                task_id=task_id,
+                kind="report",
+                report_path=str(out_file),
+            )
+        except Exception as e:
+            print(f"[{self.ENGINE_NAME}] 论坛发言失败: {e}")
+
+    # ---------- LLM 节点 ----------
     def _plan_paragraphs(self, query: str) -> list:
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
@@ -59,7 +128,6 @@ class TheoryExpertAgent:
         return [line.strip() for line in text.splitlines() if line.strip()][:config.PARAGRAPHS_PER_ENGINE]
 
     def _analyze_one_paragraph(self, query: str, para_title: str) -> str:
-        # LLM 生成搜索词（给 Tavily 用）
         q_resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
@@ -68,8 +136,8 @@ class TheoryExpertAgent:
             ],
         )
         search_queries = [l.strip() for l in q_resp.choices[0].message.content.splitlines() if l.strip()]
+        self._phase(f"「{para_title}」生成检索词：" + "；".join(search_queries))
 
-        # Tavily 搜索（用第一条最关键的）
         results_text = ""
         if search_queries:
             try:
@@ -83,14 +151,18 @@ class TheoryExpertAgent:
                         "98pao.com", "strava.com", "outsideonline.com",
                     ],
                 )
+                hits = result.get("results", [])
                 results_text = "\n".join(
-                    f"- [{r.get('title','')}]({r.get('url','')})：{r.get('content','')[:200]}"
-                    for r in result.get("results", [])
+                    f"- [{r.get('title', '')}]({r.get('url', '')})：{r.get('content', '')[:200]}"
+                    for r in hits
                 )
+                if hits:
+                    titles = "；".join(h.get("title", "")[:40] for h in hits[:3])
+                    self._phase(f"「{para_title}」Tavily 返回 {len(hits)} 条：{titles}")
             except Exception as e:
                 results_text = f"(Tavily 搜索失败: {e})"
+                self._phase(f"「{para_title}」Tavily 搜索失败：{e}")
 
-        # LLM 总结本段
         s_resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
@@ -101,15 +173,20 @@ class TheoryExpertAgent:
                     f"搜索结果：\n{results_text}"},
             ],
         )
-        return s_resp.choices[0].message.content.strip()
+        summary = s_resp.choices[0].message.content.strip()
+        self._phase(f"「{para_title}」研究完成：{summary[:120]}…")
+        return summary
 
-    def _final_report(self, query: str, summaries: list) -> str:
+    def _final_report(self, query: str, summaries: list, guidance_from_host: str = "") -> str:
+        user_content = f"用户问题：{query}\n\n各段分析：\n\n" + "\n\n".join(summaries)
+        if guidance_from_host:
+            user_content += f"\n\n主持人（HOST）给出的补充指引：\n{guidance_from_host}"
+
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
                 {"role": "system", "content": "你是理论研究报告撰写者。把多段学术分析合并成一份中文 Markdown 报告，开头加问题和日期。"},
-                {"role": "user", "content":
-                    f"用户问题：{query}\n\n各段分析：\n\n" + "\n\n".join(summaries)},
+                {"role": "user", "content": user_content},
             ],
         )
         return (

@@ -108,7 +108,7 @@
                     <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
                     </svg>
-                    Keep
+                    Excel 本地导入
                 </span>
             </div>
             <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User" class="w-8 h-8 rounded-full border border-gray-200 p-0.5 cursor-pointer hover:border-indigo-500 transition-colors">
@@ -151,6 +151,14 @@
                     </svg>
                 </button>
 
+                <!-- Excel 导入：上传 / 扫描 data 目录 -->
+                <input type="file" id="excelFileInput" accept=".xlsx" class="hidden" onchange="uploadExcel()">
+                <button onclick="document.getElementById('excelFileInput').click()" class="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg shadow-md hover:shadow-lg transition-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 4m4-4v12" />
+                    </svg>
+                    上传 Excel
+                </button>
                 <!-- 添加按钮 (主行动点) -->
                 <button onclick="showAddModal()" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -265,11 +273,6 @@
                     </div>
                 </div>
 
-                <div class="mt-6">
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">心率数据 (JSON格式数组,可选)</label>
-                    <textarea id="heartRateData" rows="4" placeholder='例: ["120","125","130","128"]' class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"></textarea>
-                </div>
-
                 <div class="flex gap-3 justify-end mt-8">
                     <button type="button" onclick="closeModal()" class="px-6 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">取消</button>
                     <button type="submit" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all">保存</button>
@@ -333,7 +336,10 @@
         // 加载训练记录
         async function loadRecords() {
             try {
-                const response = await fetch(`/training/api/records?page=${currentPage}&per_page=20`);
+                const keyword = (document.getElementById('searchInput').value || '').trim();
+                const qs = new URLSearchParams({page: currentPage, per_page: 20});
+                if (keyword) qs.set('q', keyword);
+                const response = await fetch(`/training/api/records?${qs.toString()}`);
                 const result = await response.json();
 
                 if (result.success) {
@@ -452,7 +458,6 @@
                     document.getElementById('calories').value = record.calories || '';
                     document.getElementById('avgHeartRate').value = record.avg_heart_rate || '';
                     document.getElementById('maxHeartRate').value = record.max_heart_rate || '';
-                    document.getElementById('heartRateData').value = record.heart_rate_data || '';
                     document.getElementById('dataSource').value = record.data_source;
 
                     document.getElementById('recordModal').classList.add('active');
@@ -476,7 +481,6 @@
                 calories: document.getElementById('calories').value || null,
                 avg_heart_rate: document.getElementById('avgHeartRate').value || null,
                 max_heart_rate: document.getElementById('maxHeartRate').value || null,
-                heart_rate_data: document.getElementById('heartRateData').value || null,
                 data_source: document.getElementById('dataSource').value
             };
 
@@ -541,11 +545,39 @@
             editingRecordId = null;
         }
 
-        // 搜索记录
+        // 搜索记录（按 类型 / ID）
         function searchRecords() {
-            const searchText = document.getElementById('searchInput').value;
-            alert('搜索功能待实现: ' + searchText);
+            currentPage = 1;
+            loadRecords();
         }
+
+        document.getElementById('searchInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') searchRecords();
+        });
+
+        // 上传 Excel
+        async function uploadExcel() {
+            const input = document.getElementById('excelFileInput');
+            if (!input.files || !input.files[0]) return;
+            const fd = new FormData();
+            fd.append('file', input.files[0]);
+            try {
+                const r = await fetch('/training/api/import-excel', {method: 'POST', body: fd});
+                const result = await r.json();
+                if (result.success) {
+                    showSuccess(result.message);
+                    loadRecords();
+                } else {
+                    showError(result.message);
+                }
+            } catch (e) {
+                showError('上传失败: ' + e.message);
+            } finally {
+                input.value = '';
+            }
+        }
+
+        // 目录扫描导入功能已移除（保留手动上传 Excel 入口）
 
         // 上一页
         function previousPage() {
