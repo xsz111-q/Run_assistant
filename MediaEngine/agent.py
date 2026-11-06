@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""MediaEngine 极简版（Iter 1 裁剪后）
+"""MediaEngine（Iter 2）
 
-实用情报 Agent — 博查多模态搜索（赛事 / 天气 / 装备 / 路线）
-骨架同上：6 次 LLM 调用
+实用情报专家 —— 博查多模态搜索（赛事 / 天气 / 装备 / 路线）。
+Iter 2 新增：research() 签名、运行态写入、论坛发言。
 """
 
 import sys
@@ -14,40 +14,109 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
 import config
+from utils.engine_runtime import write_status, append_phase
+from ForumEngine.monitor import append_post
+
 from openai import OpenAI
 
 
 class LogisticsIntelligenceAgent:
+    ENGINE_KEY = "media"
     ENGINE_NAME = "MediaEngine"
     OUTPUT_FILE = "media_report.md"
+    REPORT_DIR = config.MEDIA_REPORTS_DIR
 
     BOCHA_URL = "https://api.bocha.cn/v1/ai-search"
 
     def __init__(self):
         self.llm = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
 
+    # ---------- 对外入口 ----------
     def run(self, query: str, output_dir: str = None) -> str:
-        out_dir = Path(output_dir) if output_dir else _ROOT / config.REPORTS_DIR
+        return self._research(query, "", None, output_dir)
+
+    def research(self, query: str, guidance_from_host: str = "",
+                 task_id: str = None, output_dir: str = None) -> str:
+        return self._research(query, guidance_from_host, task_id, output_dir)
+
+    # ---------- 主流程 ----------
+    def _research(self, query, guidance_from_host, task_id, output_dir) -> str:
+        out_dir = Path(output_dir) if output_dir else _ROOT / self.REPORT_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / self.OUTPUT_FILE
+        fname = f"media_report_{task_id}.md" if task_id else self.OUTPUT_FILE
+        out_file = out_dir / fname
 
         print(f"[{self.ENGINE_NAME}] 开始实用情报搜索: {query}")
+        self._task_id = task_id
+        self._status(task_id, status="running", progress=5,
+                     stage="规划情报段落", query=query, report_path="")
+        self._phase(f"收到问题：{query}")
 
-        paragraphs = self._plan_paragraphs(query)
-        print(f"[{self.ENGINE_NAME}] 规划段落: {paragraphs}")
+        try:
+            paragraphs = self._plan_paragraphs(query)
+            self._status(task_id, progress=15, stage=f"已规划 {len(paragraphs)} 个情报段落")
+            self._phase("情报段落规划完成：" + "；".join(paragraphs))
 
-        summaries = []
-        for i, para_title in enumerate(paragraphs, 1):
-            print(f"[{self.ENGINE_NAME}] 段落 {i}/{len(paragraphs)}: {para_title}")
-            summary = self._analyze_one_paragraph(query, para_title)
-            summaries.append(f"## {para_title}\n\n{summary}")
+            summaries = []
+            total = max(len(paragraphs), 1)
+            for i, para_title in enumerate(paragraphs, 1):
+                self._status(task_id, progress=15 + int(65 * i / total),
+                             stage=f"搜索情报 {i}/{total}：{para_title}")
+                print(f"[{self.ENGINE_NAME}] 段落 {i}/{total}: {para_title}")
+                summary = self._analyze_one_paragraph(query, para_title)
+                summaries.append(f"## {para_title}\n\n{summary}")
 
-        full = self._final_report(query, summaries)
-        out_file.write_text(full, encoding="utf-8")
-        print(f"[{self.ENGINE_NAME}] 报告已写入: {out_file}")
-        return str(out_file)
+            self._status(task_id, progress=85, stage="汇总生成报告")
+            self._phase("开始汇总生成完整报告…")
+            full = self._final_report(query, summaries, guidance_from_host)
+            out_file.write_text(full, encoding="utf-8")
+            print(f"[{self.ENGINE_NAME}] 报告已写入: {out_file}")
 
-    # ---------- 节点 ----------
+            self._status(task_id, status="done", progress=100,
+                         stage="情报搜索完成", report_path=str(out_file))
+            self._post_to_forum(query, summaries, out_file, task_id)
+            return str(out_file)
+        except Exception as e:
+            self._status(task_id, status="error", stage="搜索失败",
+                         error=f"{type(e).__name__}: {e}")
+            raise
+
+    # ---------- 辅助 ----------
+    def _status(self, task_id, **fields):
+        if not task_id:
+            return
+        try:
+            write_status(self.ENGINE_KEY, task_id, **fields)
+        except Exception as e:
+            print(f"[{self.ENGINE_NAME}] 写运行态失败: {e}")
+
+    def _phase(self, text: str):
+        tid = getattr(self, "_task_id", None)
+        if not tid:
+            return
+        try:
+            append_phase(self.ENGINE_KEY, tid, text)
+        except Exception as e:
+            print(f"[{self.ENGINE_NAME}] 写阶段日志失败: {e}")
+
+    def _post_to_forum(self, query, summaries, out_file, task_id):
+        if not task_id:
+            return
+        digest = "；".join(
+            s.split("\n\n", 1)[-1].replace("\n", " ")[:150] for s in summaries
+        )
+        try:
+            append_post(
+                agent=self.ENGINE_KEY,
+                content=f"针对「{query}」的实用情报检索已完成：{digest}",
+                task_id=task_id,
+                kind="report",
+                report_path=str(out_file),
+            )
+        except Exception as e:
+            print(f"[{self.ENGINE_NAME}] 论坛发言失败: {e}")
+
+    # ---------- LLM 节点 ----------
     def _plan_paragraphs(self, query: str) -> list:
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
@@ -60,7 +129,6 @@ class LogisticsIntelligenceAgent:
         return [line.strip() for line in text.splitlines() if line.strip()][:config.PARAGRAPHS_PER_ENGINE]
 
     def _analyze_one_paragraph(self, query: str, para_title: str) -> str:
-        # LLM 生成 Bocha 搜索词
         q_resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
@@ -69,8 +137,8 @@ class LogisticsIntelligenceAgent:
             ],
         )
         search_q = q_resp.choices[0].message.content.strip()
+        self._phase(f"「{para_title}」生成搜索词：{search_q}")
 
-        # Bocha 搜索
         results_text = ""
         try:
             resp = requests.post(
@@ -86,15 +154,19 @@ class LogisticsIntelligenceAgent:
                 data = resp.json()
                 items = data.get("data", {}).get("items", []) if isinstance(data, dict) else []
                 results_text = "\n".join(
-                    f"- [{it.get('title','')}]({it.get('url','')})：{it.get('summary','')[:200]}"
+                    f"- [{it.get('title', '')}]({it.get('url', '')})：{it.get('summary', '')[:200]}"
                     for it in items[:5]
                 )
+                if items:
+                    titles = "；".join(it.get("title", "")[:40] for it in items[:3])
+                    self._phase(f"「{para_title}」博查返回 {len(items)} 条：{titles}")
             else:
                 results_text = f"(Bocha 返回 {resp.status_code}: {resp.text[:200]})"
+                self._phase(f"「{para_title}」博查返回 {resp.status_code}")
         except Exception as e:
             results_text = f"(Bocha 搜索失败: {e})"
+            self._phase(f"「{para_title}」博查搜索失败：{e}")
 
-        # LLM 总结
         s_resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
@@ -103,15 +175,20 @@ class LogisticsIntelligenceAgent:
                     f"用户原始问题：{query}\n本段主题：{para_title}\n搜索结果：\n{results_text}"},
             ],
         )
-        return s_resp.choices[0].message.content.strip()
+        summary = s_resp.choices[0].message.content.strip()
+        self._phase(f"「{para_title}」情报整理完成：{summary[:120]}…")
+        return summary
 
-    def _final_report(self, query: str, summaries: list) -> str:
+    def _final_report(self, query: str, summaries: list, guidance_from_host: str = "") -> str:
+        user_content = f"用户问题：{query}\n\n各段建议：\n\n" + "\n\n".join(summaries)
+        if guidance_from_host:
+            user_content += f"\n\n主持人（HOST）给出的补充指引：\n{guidance_from_host}"
+
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
                 {"role": "system", "content": "你是实用情报报告撰写者。把多段建议合并成中文 Markdown 报告，开头加问题和日期。"},
-                {"role": "user", "content":
-                    f"用户问题：{query}\n\n各段建议：\n\n" + "\n\n".join(summaries)},
+                {"role": "user", "content": user_content},
             ],
         )
         return (

@@ -1,7 +1,9 @@
-# Run_assistant Iter 1 依赖
+# Run_assistant Iter 2 依赖
 
 # Web
 flask==2.3.3
+flask-socketio>=5.3.0
+python-socketio>=5.8.0
 streamlit==1.28.1
 
 # LLM / 搜索
@@ -16,6 +18,7 @@ pymysql==1.1.0
 # 数据处理
 pandas>=2.0.0
 python-dateutil>=2.8.2
+openpyxl>=3.1.0
 
 # 工具
 python-dotenv>=1.0.0

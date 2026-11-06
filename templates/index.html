@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Synapse Run · 跑步训练多智能体分析</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -12,21 +13,20 @@
       background: #f4f6fa; color: #222; padding: 24px;
     }
     header {
-      max-width: 1100px; margin: 0 auto 28px;
+      max-width: 1180px; margin: 0 auto 24px;
       display: flex; justify-content: space-between; align-items: flex-start;
     }
     header h1 { font-size: 26px; font-weight: 600; }
     header p  { color: #777; margin-top: 6px; font-size: 14px; }
     header nav a {
-      display: inline-block; margin-top: 8px;
+      display: inline-block; margin-top: 8px; margin-left: 8px;
       padding: 6px 14px; border-radius: 6px; background: #eef2ff;
       color: #4338ca; text-decoration: none; font-size: 13px; font-weight: 500;
     }
     header nav a:hover { background: #e0e7ff; }
 
-    main { max-width: 1100px; margin: 0 auto; }
+    main { max-width: 1180px; margin: 0 auto; }
 
-    /* 提问区 */
     .ask-card {
       background: #fff; border-radius: 12px; padding: 24px;
       box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 20px;
@@ -47,44 +47,68 @@
     button.ask-btn:disabled { background: #9ca3af; cursor: not-allowed; }
     .hint { font-size: 12px; color: #999; margin-left: auto; }
 
-    /* 进度区 */
+    .layout { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
     .progress-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
-      margin-bottom: 20px;
+      display: grid; grid-template-columns: 1fr; gap: 12px;
     }
-    @media (max-width: 900px) { .progress-grid { grid-template-columns: 1fr; } }
     .eng-card {
       background: #fff; border-radius: 12px; padding: 16px;
       box-shadow: 0 1px 3px rgba(0,0,0,.06);
-      border-top: 3px solid #e5e7eb;
+      border-left: 4px solid #e5e7eb;
     }
-    .eng-card .title { font-size: 14px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
-    .eng-card .status { font-size: 12px; color: #888; }
-    .eng-card.pending { border-top-color: #e5e7eb; }
-    .eng-card.running { border-top-color: #f59e0b; }
-    .eng-card.done    { border-top-color: #22c55e; }
-    .eng-card.error   { border-top-color: #ef4444; }
-    .badge {
-      display: inline-block; padding: 2px 8px; border-radius: 10px;
-      font-size: 11px; font-weight: 500;
-    }
+    .eng-card .title { font-size: 14px; font-weight: 600; margin-bottom: 6px;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .eng-card .stage { font-size: 12px; color: #888; min-height: 18px; }
+    .eng-card .link { font-size: 12px; color: #4f46e5; text-decoration: none; }
+    .eng-card.pending { border-left-color: #e5e7eb; }
+    .eng-card.queued  { border-left-color: #e5e7eb; }
+    .eng-card.running { border-left-color: #f59e0b; }
+    .eng-card.done    { border-left-color: #22c55e; }
+    .eng-card.error   { border-left-color: #ef4444; }
+    .bar { height: 5px; background: #f1f5f9; border-radius: 3px; margin-top: 10px; overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 0; background: #4f46e5; transition: width .4s; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
     .badge.pending { background: #f3f4f6; color: #6b7280; }
+    .badge.queued  { background: #f3f4f6; color: #6b7280; }
     .badge.running { background: #fef3c7; color: #b45309; }
     .badge.done    { background: #dcfce7; color: #15803d; }
     .badge.error   { background: #fee2e2; color: #b91c1c; }
 
-    /* 报告区 */
+    .forum-card {
+      background: #0f172a; color: #e2e8f0; border-radius: 12px;
+      padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.12);
+      display: flex; flex-direction: column; max-height: 640px;
+    }
+    .forum-card h2 { font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .forum-live { font-size: 11px; color: #34d399; background: rgba(52,211,153,.12);
+      padding: 1px 8px; border-radius: 10px; }
+    .forum-list { flex: 1; overflow-y: auto; padding-right: 4px; }
+    .post { padding: 10px 0; border-bottom: 1px solid rgba(148,163,184,.15); }
+    .post:last-child { border-bottom: none; }
+    .post .meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+    .post .who { font-weight: 600; }
+    .post .who.insight { color: #60a5fa; }
+    .post .who.query   { color: #c084fc; }
+    .post .who.media   { color: #34d399; }
+    .post .who.host    { color: #fbbf24; }
+    .post .time { color: #64748b; font-size: 11px; }
+    .post .body { font-size: 13px; line-height: 1.65; color: #cbd5e1; white-space: pre-wrap; }
+    .post.host { background: rgba(251,191,36,.08); border-radius: 8px; padding: 12px 10px; margin: 6px 0; }
+    .empty { color: #64748b; font-size: 13px; padding: 18px 0; }
+
+    .reports-area { margin-top: 22px; }
     .reports-area h2 { font-size: 17px; margin-bottom: 10px; }
     .report-card {
       background: #fff; border-radius: 12px; padding: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px;
-      display: none;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; display: none;
     }
     .report-card.show { display: block; }
-    .report-card h3 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .report-card h3 { font-size: 15px; margin-bottom: 12px; }
     .report-body {
       font-size: 14px; line-height: 1.7; color: #333;
-      max-height: 500px; overflow-y: auto;
+      max-height: 520px; overflow-y: auto;
       border-top: 1px solid #f1f5f9; padding-top: 14px;
     }
     .report-body h1 { font-size: 20px; margin-bottom: 10px; }
@@ -92,17 +116,17 @@
     .report-body h3 { font-size: 14px; margin: 10px 0 6px; }
     .report-body p { margin: 6px 0; }
     .report-body ul, .report-body ol { padding-left: 20px; margin: 6px 0; }
-    .report-body code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
 
     footer { margin-top: 40px; text-align: center; color: #aaa; font-size: 12px; }
+    #iframe-host { position: fixed; width: 1px; height: 1px; opacity: 0; overflow: hidden; left: 0; bottom: 0; }
   </style>
 </head>
 <body>
 
 <header>
   <div>
-    <h1>🏃‍♂️ Synapse Run · 跑步训练智能分析</h1>
-    <p>三个 AI Agent 协作：运动科学家 · 理论专家 · 实用情报</p>
+    <h1>Synapse Run · 跑步训练智能分析</h1>
+    <p>三个独立运行的 AI Agent 协作：运动科学家 · 理论专家 · 实用情报</p>
   </div>
   <nav>
     <a href="/training/">📂 训练数据管理</a>
@@ -111,33 +135,53 @@
 
 <main>
 
-  <!-- 提问卡 -->
   <div class="ask-card">
     <h2>🎯 提出你的问题</h2>
     <textarea id="queryInput" placeholder="例如：如何提升 10 公里跑成绩？我下周要跑无锡马拉松，有什么注意事项？"></textarea>
     <div class="ask-row">
-      <button class="ask-btn" id="askBtn">🚀 开始三引擎协作分析</button>
-      <span class="hint">一次约 1~3 分钟 · 三个引擎顺序运行</span>
+      <button class="ask-btn" id="askBtn">🚀 启动三引擎分析</button>
+      <span class="hint">三个引擎在各自 Streamlit 进程中运行 · 请保持本页打开</span>
     </div>
   </div>
 
-  <!-- 进度卡 -->
-  <div class="progress-grid">
-    <div class="eng-card pending" id="card-insight">
-      <div class="title">📊 InsightEngine · 运动科学家 <span class="badge pending" id="badge-insight">等待中</span></div>
-      <div class="status" id="status-insight">查本地训练数据库，分析运动表现</div>
+  <div class="layout">
+    <div class="progress-grid">
+      <div class="eng-card pending" id="card-insight">
+        <div class="title">📊 InsightEngine · 运动科学家
+          <span class="badge pending" id="badge-insight">等待中</span>
+          <a class="link" id="link-insight" href="http://localhost:8501" target="_blank" style="display:none">打开页面 ↗</a>
+        </div>
+        <div class="stage" id="stage-insight">读取本地训练数据，分析运动表现</div>
+        <div class="bar"><i id="bar-insight"></i></div>
+      </div>
+
+      <div class="eng-card pending" id="card-query">
+        <div class="title">🎓 QueryEngine · 理论专家
+          <span class="badge pending" id="badge-query">等待中</span>
+          <a class="link" id="link-query" href="http://localhost:8502" target="_blank" style="display:none">打开页面 ↗</a>
+        </div>
+        <div class="stage" id="stage-query">Tavily 学术搜索，研究训练科学</div>
+        <div class="bar"><i id="bar-query"></i></div>
+      </div>
+
+      <div class="eng-card pending" id="card-media">
+        <div class="title">🧭 MediaEngine · 实用情报
+          <span class="badge pending" id="badge-media">等待中</span>
+          <a class="link" id="link-media" href="http://localhost:8503" target="_blank" style="display:none">打开页面 ↗</a>
+        </div>
+        <div class="stage" id="stage-media">博查多模态搜索：赛事 / 装备 / 路线</div>
+        <div class="bar"><i id="bar-media"></i></div>
+      </div>
     </div>
-    <div class="eng-card pending" id="card-query">
-      <div class="title">🎓 QueryEngine · 理论专家 <span class="badge pending" id="badge-query">等待中</span></div>
-      <div class="status" id="status-query">Tavily 学术搜索，研究训练科学</div>
-    </div>
-    <div class="eng-card pending" id="card-media">
-      <div class="title">🧭 MediaEngine · 实用情报 <span class="badge pending" id="badge-media">等待中</span></div>
-      <div class="status" id="status-media">博查多模态搜索：赛事/装备/路线</div>
+
+    <div class="forum-card">
+      <h2>💬 智能体论坛 <span class="forum-live" id="forumLive">● 实时</span></h2>
+      <div class="forum-list" id="forumList">
+        <div class="empty">提问后，三个引擎会在这里依次发言…</div>
+      </div>
     </div>
   </div>
 
-  <!-- 报告区 -->
   <div class="reports-area">
     <h2>📄 各引擎报告</h2>
     <div class="report-card" id="report-insight">
@@ -156,42 +200,124 @@
 
 </main>
 
+<div id="iframe-host"></div>
 <footer>Synapse Run — 跑步训练多智能体协作分析系统</footer>
 
 <script>
 const ENGINES = ["insight", "query", "media"];
+const STATUS_TEXT = {
+  pending: "等待中", queued: "启动中", running: "运行中…",
+  done: "✅ 完成", error: "❌ 失败"
+};
 let currentTaskId = null;
 let pollTimer = null;
+let finished = false;
 
+// ---------- 论坛 ----------
+const forumList = document.getElementById("forumList");
+let forumEmpty = true;
+
+function fmtTime(ts) {
+  if (!ts) return "";
+  return ts.replace("T", " ").slice(5, 19);
+}
+
+function renderPost(post) {
+  if (forumEmpty) { forumList.innerHTML = ""; forumEmpty = false; }
+  const div = document.createElement("div");
+  div.className = "post" + (post.kind === "host_speech" ? " host" : "");
+  const who = post.agent || "";
+  div.innerHTML = `
+    <div class="meta">
+      <span class="who ${who}">${post.agent_name || who}</span>
+      <span class="time">${fmtTime(post.ts)}</span>
+    </div>
+    <div class="body"></div>`;
+  // 用 textContent 避免 HTML 注入
+  div.querySelector(".body").textContent = post.content || "";
+  forumList.appendChild(div);
+  forumList.scrollTop = forumList.scrollHeight;
+}
+
+if (window.io) {
+  const socket = io();
+  socket.on("connect", () => {
+    document.getElementById("forumLive").textContent = "● 实时";
+  });
+  socket.on("disconnect", () => {
+    document.getElementById("forumLive").textContent = "○ 已断开";
+  });
+  socket.on("forum_history", (data) => {
+    if (!(data.posts || []).length) return;
+    forumList.innerHTML = "";     // 重连时避免重复渲染
+    forumEmpty = false;
+    data.posts.forEach(renderPost);
+  });
+  socket.on("forum_message", renderPost);
+  socket.on("host_speech", (data) => {
+    // 主持人发言会同时以 forum_message 到达，这里只兜底
+    if (data && data.content && !data.post) renderPost(data);
+  });
+} else {
+  document.getElementById("forumLive").textContent = "○ 轮询模式";
+}
+
+// ---------- 隐藏 iframe：建立 Streamlit 会话以触发引擎 ----------
+function triggerIframes(taskId, query, engines) {
+  const host = document.getElementById("iframe-host");
+  host.innerHTML = "";
+  Object.entries(engines).forEach(([key, info]) => {
+    const link = document.getElementById("link-" + key);
+    if (link) { link.href = info.port ? `http://localhost:${info.port}` : "#"; link.style.display = "inline"; }
+    if (!info.ready) return;
+    const f = document.createElement("iframe");
+    f.src = `http://localhost:${info.port}/?task_id=${taskId}&auto_search=true&query=${encodeURIComponent(query)}`;
+    f.width = "1"; f.height = "1";
+    host.appendChild(f);
+  });
+}
+
+// ---------- 提问 ----------
 document.getElementById("askBtn").onclick = async () => {
   const q = document.getElementById("queryInput").value.trim();
   if (!q) { alert("请先输入问题"); return; }
 
-  document.getElementById("askBtn").disabled = true;
-  document.getElementById("askBtn").textContent = "⏳ 分析中...";
+  const btn = document.getElementById("askBtn");
+  btn.disabled = true;
+  btn.textContent = "⏳ 正在启动三个引擎…";
+  finished = false;
+  if (pollTimer) clearInterval(pollTimer);
   resetCards();
 
-  const r = await fetch("/api/ask", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({query: q}),
-  });
-  const data = await r.json();
-  if (data.error) { alert(data.error); resetBtn(); return; }
-  currentTaskId = data.task_id;
-  pollTimer = setInterval(pollStatus, 2500);
+  try {
+    const r = await fetch("/api/ask", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({query: q}),
+    });
+    const data = await r.json();
+    if (!r.ok || data.error) { alert(data.error || "启动失败"); resetBtn(); return; }
+
+    currentTaskId = data.task_id;
+    triggerIframes(data.task_id, q, data.engines);
+    btn.textContent = "⏳ 三引擎协作中…";
+    pollTimer = setInterval(pollStatus, 2000);
+  } catch (e) {
+    alert("启动失败：" + e.message);
+    resetBtn();
+  }
 };
 
 function resetBtn() {
   const b = document.getElementById("askBtn");
-  b.disabled = false; b.textContent = "🚀 开始三引擎协作分析";
+  b.disabled = false; b.textContent = "🚀 启动三引擎分析";
 }
 
 function resetCards() {
   ENGINES.forEach(k => {
-    const c = document.getElementById("card-" + k);
+    document.getElementById("card-" + k).className = "eng-card pending";
     const b = document.getElementById("badge-" + k);
-    c.className = "eng-card pending";
     b.className = "badge pending"; b.textContent = "等待中";
+    document.getElementById("bar-" + k).style.width = "0%";
     document.getElementById("report-" + k).classList.remove("show");
     document.getElementById("body-" + k).innerHTML = "";
   });
@@ -199,43 +325,55 @@ function resetCards() {
 
 async function pollStatus() {
   if (!currentTaskId) return;
-  const r = await fetch("/api/task/" + currentTaskId);
-  const data = await r.json();
+  try {
+    const r = await fetch("/api/task/" + currentTaskId);
+    if (!r.ok) return;
+    const data = await r.json();
 
-  ENGINES.forEach(k => {
-    const eng = data.engines[k];
-    const c = document.getElementById("card-" + k);
-    const b = document.getElementById("badge-" + k);
-    c.className = "eng-card " + eng.status;
-    b.className = "badge " + eng.status;
-    b.textContent = {pending: "等待中", running: "运行中…", done: "✅ 完成", error: "❌ 失败"}[eng.status] || eng.status;
-  });
+    ENGINES.forEach(k => {
+      const e = data.engines[k] || {status: "pending"};
+      const status = e.status || "pending";
+      document.getElementById("card-" + k).className = "eng-card " + status;
+      const b = document.getElementById("badge-" + k);
+      b.className = "badge " + status;
+      b.textContent = STATUS_TEXT[status] || status;
+      document.getElementById("bar-" + k).style.width = (e.progress || 0) + "%";
+      if (e.stage) document.getElementById("stage-" + k).textContent =
+        e.stage + (e.error ? "｜" + e.error : "");
+    });
 
-  if (data.status === "done" || data.status === "cancelled" || data.status === "error") {
-    clearInterval(pollTimer);
-    // 拉三份报告内容
-    ENGINES.forEach(k => fetchReport(k));
-    resetBtn();
-  }
+    const allDone = ENGINES.every(k => ["done", "error"].includes(data.engines[k].status));
+    if (allDone && !finished) {
+      finished = true;
+      clearInterval(pollTimer);
+      resetBtn();
+      ENGINES.forEach(k => fetchReport(k));
+    }
+  } catch (e) { console.warn(e); }
 }
 
 async function fetchReport(key) {
   try {
-    const r = await fetch("/api/report/" + key);
+    const r = await fetch(`/api/report/${key}?task_id=${currentTaskId}`);
     if (!r.ok) return;
     const d = await r.json();
-    const card = document.getElementById("report-" + key);
     const body = document.getElementById("body-" + key);
-    // 简单 Markdown → HTML：保留段落换行
-    body.innerHTML = d.content
-      .replace(/^# (.*)$/gm, '<h1>$1</h1>')
-      .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-      .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/^> (.*)$/gm, '<blockquote>$1</blockquote>')
-      .replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
-    card.classList.add("show");
-  } catch(e) { console.warn(e); }
+    body.innerHTML = markdownToHtml(d.content);
+    document.getElementById("report-" + key).classList.add("show");
+  } catch (e) { console.warn(e); }
+}
+
+function markdownToHtml(md) {
+  const esc = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc
+    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.*)$/gm, "<h1>$1</h1>")
+    .replace(/^> (.*)$/gm, "<blockquote>$1</blockquote>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/^\s*- (.*)$/gm, "• $1")
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br>");
 }
 </script>
 
