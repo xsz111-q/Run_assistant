@@ -71,7 +71,7 @@ class EngineProcessManager:
 
     @classmethod
     def start_round(cls, query: str, task_id: str, round_no: int = 1,
-                    targets=None, guidance: str = ""):
+                    targets=None, guidance: str = "", persona: str = ""):
         """启动一轮：targets 内的引擎执行研究，其余引擎仅展示报告"""
         cls.stop_all()
         targets = set(targets) if targets else set(ENGINES)
@@ -90,6 +90,7 @@ class EngineProcessManager:
                 "RUN_TASK_ID": task_id,
                 "RUN_ROUND": str(round_no),
                 "RUN_GUIDANCE": guidance or "",
+                "RUN_PERSONA": persona or "",
                 "PYTHONIOENCODING": "utf-8",
                 "PYTHONUTF8": "1",
                 "PYTHONUNBUFFERED": "1",

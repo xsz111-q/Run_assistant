@@ -31,6 +31,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 import config
 from utils.process_manager import ENGINES, EngineProcessManager
 from utils.engine_runtime import read_status
+from utils.persona import load_persona
 from ForumEngine.monitor import ensure_forum, read_posts, read_from_offset
 from orchestrator.scheduler import OrchestratorScheduler, read_orchestrator_state
 from ReportEngine.agent import ReportAgent
@@ -172,13 +173,14 @@ def _snapshot(task_id: str) -> dict:
 
 
 # ---------- 主流程（后台线程） ----------
-def _pipeline(task_id: str, query: str):
-    """调度 → 最终报告"""
+def _pipeline(task_id: str, query: str, user_id=None):
+    """调度 → 最终报告（user_id 用于生成用户画像并注入引擎，Issue #5）"""
     global _active_task_id
     sched = _schedulers[task_id]
 
     try:
-        sched.start(query, task_id).join()
+        persona = load_persona(user_id)
+        sched.start(query, task_id, persona=persona).join()
         state = sched.snapshot()
 
         reports = _collect_reports(task_id)
@@ -276,10 +278,12 @@ def api_ask():
 
     global _active_task_id
     task_id = uuid.uuid4().hex[:10]
+    user_id = session.get("user_id")
     with _tasks_lock:
         _tasks[task_id] = {
             "status": "running",
             "query": query,
+            "user_id": user_id,
             "created_at": datetime.now().isoformat(),
         }
     _active_task_id = task_id
@@ -293,7 +297,7 @@ def api_ask():
     sched = OrchestratorScheduler(emit=_emit)
     _schedulers[task_id] = sched
 
-    threading.Thread(target=_pipeline, args=(task_id, query), daemon=True).start()
+    threading.Thread(target=_pipeline, args=(task_id, query, user_id), daemon=True).start()
 
     return jsonify({
         "task_id": task_id,

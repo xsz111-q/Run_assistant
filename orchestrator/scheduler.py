@@ -56,7 +56,7 @@ class OrchestratorScheduler:
         self._lock = threading.Lock()
 
     # ---------- 对外 ----------
-    def start(self, query: str, task_id: str) -> threading.Thread:
+    def start(self, query: str, task_id: str, persona: str = "") -> threading.Thread:
         self.state = {
             "task_id": task_id,
             "query": query,
@@ -73,7 +73,7 @@ class OrchestratorScheduler:
         }
         with self._lock:
             self._save()
-        t = threading.Thread(target=self._run, args=(query, task_id), daemon=True)
+        t = threading.Thread(target=self._run, args=(query, task_id, persona), daemon=True)
         t.start()
         return t
 
@@ -88,7 +88,7 @@ class OrchestratorScheduler:
             return json.loads(json.dumps(self.state, ensure_ascii=False))
 
     # ---------- 主循环 ----------
-    def _run(self, query: str, task_id: str):
+    def _run(self, query: str, task_id: str, persona: str = ""):
         deadline = time.time() + config.ORCH_TIMEOUT
         targets = set(ENGINES)
         guidance = ""
@@ -103,7 +103,7 @@ class OrchestratorScheduler:
                 self.emit("orchestrator_update", self.snapshot())
 
                 engine_state = self._run_round(
-                    query, task_id, round_no, targets, guidance, deadline
+                    query, task_id, round_no, targets, guidance, deadline, persona
                 )
                 with self._lock:
                     self.state["llm_calls_estimate"] += \
@@ -170,10 +170,11 @@ class OrchestratorScheduler:
             self._fail(f"{type(e).__name__}: {e}")
 
     # ---------- 单轮 ----------
-    def _run_round(self, query, task_id, round_no, targets, guidance, deadline) -> dict:
+    def _run_round(self, query, task_id, round_no, targets, guidance, deadline,
+                   persona: str = "") -> dict:
         ready = EngineProcessManager.start_round(
             query, task_id, round_no=round_no,
-            targets=targets, guidance=guidance,
+            targets=targets, guidance=guidance, persona=persona,
         )
         self._update(phase=f"round{round_no}_running")
         self.emit("round_started", {

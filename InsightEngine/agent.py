@@ -25,6 +25,7 @@ sys.path.insert(0, str(_ROOT))
 import config
 from models.training_record import TrainingRecordExcel
 from utils.engine_runtime import write_status, append_phase
+from utils.persona import DEFAULT_PERSONA, persona_block
 from ForumEngine.monitor import append_post
 
 from sqlalchemy import create_engine, func
@@ -57,12 +58,13 @@ class SportsScientistAgent:
 
     def research(self, query: str, guidance_from_host: str = "",
                  task_id: str = None, round_no: int = 1,
-                 output_dir: str = None) -> str:
-        """Streamlit 进程 / 主页流程入口"""
-        return self._research(query, guidance_from_host, task_id, output_dir, round_no)
+                 output_dir: str = None, persona: str = "") -> str:
+        """Streamlit 进程 / 主页流程入口（persona 为画像文本，Issue #5）"""
+        return self._research(query, guidance_from_host, task_id, output_dir, round_no, persona)
 
     # ---------- 主流程 ----------
-    def _research(self, query, guidance_from_host, task_id, output_dir, round_no=1) -> str:
+    def _research(self, query, guidance_from_host, task_id, output_dir, round_no=1,
+                  persona="") -> str:
         out_dir = Path(output_dir) if output_dir else _ROOT / self.REPORT_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
         fname = f"insight_report_{task_id}_r{round_no}.md" if task_id else self.OUTPUT_FILE
@@ -70,10 +72,12 @@ class SportsScientistAgent:
 
         print(f"[{self.ENGINE_NAME}] 第 {round_no} 轮开始分析: {query}")
         self._task_id = task_id
+        self._persona = persona or DEFAULT_PERSONA
         self._status(task_id, status="running", progress=5,
                      stage=f"第 {round_no} 轮：规划分析段落",
                      query=query, report_path="", round=round_no)
         self._phase(f"第 {round_no} 轮收到问题：{query}")
+        self._phase(self._persona)
         if guidance_from_host:
             self._phase(f"HOST 补充指引：{guidance_from_host}")
 
@@ -150,8 +154,8 @@ class SportsScientistAgent:
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "你是运动科学教练。请把用户问题拆成恰好 2 个分析段落标题，每条一行，不要编号，不要其他解释。"},
-                {"role": "user", "content": f"用户问题：{query}"},
+                {"role": "system", "content": "你是运动科学教练。请把用户问题拆成恰好 2 个分析段落标题，每条一行，不要编号，不要其他解释。段落规划需结合用户画像。"},
+                {"role": "user", "content": f"用户问题：{query}\n{self._persona}"},
             ],
         )
         text = resp.choices[0].message.content.strip()
@@ -163,9 +167,10 @@ class SportsScientistAgent:
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "你是运动科学家，请基于下方的训练数据摘要，用中文输出 150~250 字的专业分析。只写分析正文，不要标题。"},
+                {"role": "system", "content": "你是运动科学家，请基于下方的训练数据摘要和用户画像，用中文输出 150~250 字的个性化专业分析。只写分析正文，不要标题。"},
                 {"role": "user", "content":
                     f"用户原始问题：{query}\n"
+                    f"{self._persona}\n"
                     f"本段分析主题：{para_title}\n"
                     f"数据库摘要：\n{db_summary}"},
             ],
@@ -220,14 +225,14 @@ class SportsScientistAgent:
             session.close()
 
     def _final_report(self, query: str, summaries: list, guidance_from_host: str = "") -> str:
-        user_content = f"用户问题：{query}\n\n各段分析：\n\n" + "\n\n".join(summaries)
+        user_content = f"用户问题：{query}\n\n{self._persona}\n\n各段分析：\n\n" + "\n\n".join(summaries)
         if guidance_from_host:
             user_content += f"\n\n主持人（HOST）给出的补充指引：\n{guidance_from_host}"
 
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "你是运动科学报告撰写者。把多段分析合并成一份结构清晰的中文 Markdown 报告，开头加问题和日期。"},
+                {"role": "system", "content": "你是运动科学报告撰写者。把多段分析合并成一份结构清晰的中文 Markdown 报告，开头加问题和日期，建议需与用户画像匹配。"},
                 {"role": "user", "content": user_content},
             ],
         )
@@ -235,6 +240,7 @@ class SportsScientistAgent:
             f"# InsightEngine 分析报告\n\n"
             f"**问题**: {query}\n\n"
             f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            + persona_block(self._persona)
             + resp.choices[0].message.content.strip() + "\n"
         )
 
