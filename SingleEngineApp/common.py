@@ -46,11 +46,12 @@ def _resolve_inputs(default_query: str):
     except ValueError:
         round_no = 1
     guidance = os.environ.get("RUN_GUIDANCE") or _query_param("guidance") or ""
+    persona = os.environ.get("RUN_PERSONA") or _query_param("persona") or ""
     skip = os.environ.get("RUN_SKIP") == "1" or _query_param("skip") == "1"
     auto = bool(query) and (task_id is not None
                             or os.environ.get("RUN_AUTO") == "1"
                             or _query_param("auto_search") == "true")
-    return query.strip(), task_id, auto, round_no, guidance, skip
+    return query.strip(), task_id, auto, round_no, guidance, skip, persona
 
 
 def _show_report(report_path: str, label: str):
@@ -108,7 +109,7 @@ def render_page(agent_cls, engine_key: str, title: str, caption: str,
     st.title(title)
     st.caption(caption)
 
-    query, task_id, auto, round_no, guidance, skip = _resolve_inputs(default_query)
+    query, task_id, auto, round_no, guidance, skip, persona = _resolve_inputs(default_query)
     status = read_status(engine_key, task_id) if task_id else {}
 
     with st.sidebar:
@@ -156,7 +157,8 @@ def render_page(agent_cls, engine_key: str, title: str, caption: str,
                 def _job():
                     try:
                         agent_cls().research(query, guidance_from_host=guidance,
-                                             task_id=task_id, round_no=round_no)
+                                             task_id=task_id, round_no=round_no,
+                                             persona=persona)
                     except Exception as e:
                         print(f"[{engine_key}] 任务执行失败: {e}")
 

@@ -14,6 +14,7 @@ sys.path.insert(0, str(_ROOT))
 
 import config
 from utils.engine_runtime import write_status, append_phase
+from utils.persona import DEFAULT_PERSONA, persona_block
 from ForumEngine.monitor import append_post
 
 from openai import OpenAI
@@ -36,11 +37,12 @@ class TheoryExpertAgent:
 
     def research(self, query: str, guidance_from_host: str = "",
                  task_id: str = None, round_no: int = 1,
-                 output_dir: str = None) -> str:
-        return self._research(query, guidance_from_host, task_id, output_dir, round_no)
+                 output_dir: str = None, persona: str = "") -> str:
+        return self._research(query, guidance_from_host, task_id, output_dir, round_no, persona)
 
     # ---------- 主流程 ----------
-    def _research(self, query, guidance_from_host, task_id, output_dir, round_no=1) -> str:
+    def _research(self, query, guidance_from_host, task_id, output_dir, round_no=1,
+                  persona="") -> str:
         out_dir = Path(output_dir) if output_dir else _ROOT / self.REPORT_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
         fname = f"query_report_{task_id}_r{round_no}.md" if task_id else self.OUTPUT_FILE
@@ -48,10 +50,12 @@ class TheoryExpertAgent:
 
         print(f"[{self.ENGINE_NAME}] 第 {round_no} 轮开始理论研究: {query}")
         self._task_id = task_id
+        self._persona = persona or DEFAULT_PERSONA
         self._status(task_id, status="running", progress=5,
                      stage=f"第 {round_no} 轮：规划研究段落",
                      query=query, report_path="", round=round_no)
         self._phase(f"第 {round_no} 轮收到问题：{query}")
+        self._phase(self._persona)
         if guidance_from_host:
             self._phase(f"HOST 补充指引：{guidance_from_host}")
 
@@ -126,8 +130,8 @@ class TheoryExpertAgent:
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "你是运动科学理论专家。把用户问题拆成恰好 2 个学术研究子标题，每条一行，不要编号，不要其他解释。"},
-                {"role": "user", "content": f"用户问题：{query}"},
+                {"role": "system", "content": "你是运动科学理论专家。把用户问题拆成恰好 2 个学术研究子标题，每条一行，不要编号，不要其他解释。子标题需结合用户画像。"},
+                {"role": "user", "content": f"用户问题：{query}\n{self._persona}"},
             ],
         )
         text = resp.choices[0].message.content.strip()
@@ -172,9 +176,10 @@ class TheoryExpertAgent:
         s_resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "你是运动科学专家。基于搜索结果，用中文输出 150~250 字的学术性分析，标明引用来源编号，只写正文。"},
+                {"role": "system", "content": "你是运动科学专家。基于搜索结果和用户画像，用中文输出 150~250 字的学术性分析，标明引用来源编号，只写正文。"},
                 {"role": "user", "content":
                     f"用户原始问题：{query}\n"
+                    f"{self._persona}\n"
                     f"本段主题：{para_title}\n"
                     f"搜索结果：\n{results_text}"},
             ],
@@ -184,14 +189,14 @@ class TheoryExpertAgent:
         return summary
 
     def _final_report(self, query: str, summaries: list, guidance_from_host: str = "") -> str:
-        user_content = f"用户问题：{query}\n\n各段分析：\n\n" + "\n\n".join(summaries)
+        user_content = f"用户问题：{query}\n\n{self._persona}\n\n各段分析：\n\n" + "\n\n".join(summaries)
         if guidance_from_host:
             user_content += f"\n\n主持人（HOST）给出的补充指引：\n{guidance_from_host}"
 
         resp = self.llm.chat.completions.create(
             model=config.DEFAULT_MODEL_NAME,
             messages=[
-                {"role": "system", "content": "你是理论研究报告撰写者。把多段学术分析合并成一份中文 Markdown 报告，开头加问题和日期。"},
+                {"role": "system", "content": "你是理论研究报告撰写者。把多段学术分析合并成一份中文 Markdown 报告，开头加问题和日期，内容需与用户画像匹配。"},
                 {"role": "user", "content": user_content},
             ],
         )
@@ -199,6 +204,7 @@ class TheoryExpertAgent:
             f"# QueryEngine 理论分析报告\n\n"
             f"**问题**: {query}\n\n"
             f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            + persona_block(self._persona)
             + resp.choices[0].message.content.strip() + "\n"
         )
 
