@@ -37,9 +37,11 @@ HTML_PROMPT = (
     "2. 所有 CSS 内联在 <style> 中，不引用任何外部资源（不要 CDN、不要外部字体/图片）；\n"
     "3. 结构参考给定模板的章节顺序，但内容必须全部来自给定材料，不得编造数据；\n"
     "4. 视觉要求：浅色背景、卡片式分区、清晰的标题层级、适合手机阅读（响应式）；\n"
-    "5. 必含区块：报告标题、用户问题、生成时间、三方专家要点、主持人仲裁（共识/分歧/盲区）、"
+    "5. 必含区块：报告标题、用户问题、生成时间、用户画像（紧跟开头，单独一个卡片）、三方专家要点、主持人仲裁（共识/分歧/盲区）、"
     "可执行建议清单；\n"
-    "6. 中文排版，字号不小于 14px，行高 1.7。"
+    "6. 个性化要求：建议清单中的每条建议需结合用户画像书写，引用画像中的具体字段"
+    "（例如「根据您的半马破2目标……」「考虑到您是中年跑者……」「结合您工作日晚7-9点的可训练时间……」）；\n"
+    "7. 中文排版，字号不小于 14px，行高 1.7。"
 )
 
 ENGINE_LABELS = {
@@ -62,7 +64,7 @@ class ReportAgent:
             return []
         return sorted(self.template_dir.glob("*.md"), key=lambda p: p.name)
 
-    def select_template(self, query: str, material: str) -> dict:
+    def select_template(self, query: str, material: str, persona: str = "") -> dict:
         templates = self.list_templates()
         if not templates:
             return {"template_name": "内置通用模板", "template_content": "", "reason": "未找到模板目录"}
@@ -75,7 +77,7 @@ class ReportAgent:
                     {"role": "system", "content": SELECT_PROMPT.format(n=len(names))},
                     {"role": "user", "content":
                         f"可选模板：\n" + "\n".join(f"- {n}" for n in names) +
-                        f"\n\n用户问题：{query}\n\n分析材料摘要：\n{material[:2500]}"},
+                        f"\n\n用户问题：{query}\n\n{persona}\n\n分析材料摘要：\n{material[:2500]}"},
                 ],
                 timeout=60,
             )
@@ -99,13 +101,14 @@ class ReportAgent:
 
     # ---------- 生成 ----------
     def generate(self, query: str, task_id: str, engine_reports: dict,
-                 forum_posts: list, arbitration: dict) -> dict:
+                 forum_posts: list, arbitration: dict, persona: str = "") -> dict:
         out_dir = _ROOT / config.FINAL_REPORTS_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
         out_file = out_dir / f"{task_id}.html"
 
-        material = self._build_material(query, engine_reports, forum_posts, arbitration)
-        template = self.select_template(query, material)
+        material = self._build_material(query, engine_reports, forum_posts,
+                                        arbitration, persona)
+        template = self.select_template(query, material, persona)
         print(f"[{self.ENGINE_NAME}] 选中模板: {template['template_name']}")
 
         html_text = ""
@@ -127,13 +130,15 @@ class ReportAgent:
 
         if not _looks_like_html(html_text):
             html_text = self._render_fallback(query, engine_reports, arbitration,
-                                              template["template_name"], task_id)
+                                              template["template_name"], task_id,
+                                              persona)
 
         out_file.write_text(html_text, encoding="utf-8")
 
         meta = {
             "task_id": task_id,
             "query": query,
+            "persona": persona,
             "template_used": template["template_name"],
             "selection_reason": template["reason"],
             "report_path": str(out_file),
@@ -145,9 +150,12 @@ class ReportAgent:
         print(f"[{self.ENGINE_NAME}] 最终报告已写入: {out_file}")
         return meta
 
-    def _build_material(self, query, engine_reports, forum_posts, arbitration) -> str:
+    def _build_material(self, query, engine_reports, forum_posts, arbitration,
+                        persona: str = "") -> str:
         parts = [f"用户问题：{query}",
                  f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"]
+        if persona:
+            parts.append(f"\n===== 用户画像 =====\n{persona}")
         for key in ("insight", "query", "media"):
             info = engine_reports.get(key) or {}
             content = (info.get("content") or "").strip()
@@ -174,7 +182,7 @@ class ReportAgent:
 
     # ---------- 兜底 HTML ----------
     def _render_fallback(self, query, engine_reports, arbitration,
-                         template_name, task_id) -> str:
+                         template_name, task_id, persona: str = "") -> str:
         def esc(t):
             return html_lib.escape(t or "")
 
@@ -188,6 +196,11 @@ class ReportAgent:
             return f"<p>{body}</p>"
 
         cards = []
+        if persona:
+            cards.append(
+                '<section class="card persona"><h2>用户画像</h2>'
+                f"<p>{esc(persona)}</p></section>"
+            )
         for key in ("insight", "query", "media"):
             info = engine_reports.get(key) or {}
             content = info.get("content") or ""
@@ -226,6 +239,7 @@ h1{{font-size:24px;margin:0 0 8px}}
  box-shadow:0 2px 8px rgba(0,0,0,.06)}}
 .card h2{{font-size:18px;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid #eef2f7}}
 .card.arb{{border-left:4px solid #f59e0b}}
+.card.persona{{border-left:4px solid #10b981}}
 h3{{font-size:16px;margin:14px 0 6px}}
 p{{font-size:14px;margin:8px 0}}
 </style></head><body><main>

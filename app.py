@@ -194,7 +194,8 @@ def _pipeline(task_id: str, query: str, user_id=None):
             _emit("reporting", {"task_id": task_id})
             try:
                 meta = ReportAgent().generate(
-                    query, task_id, reports, posts, arbitration)
+                    query, task_id, reports, posts, arbitration,
+                    persona=persona)
             except Exception as e:
                 print(f"[Flask] 最终报告生成失败: {e}")
                 meta = {"error": f"{type(e).__name__}: {e}"}
