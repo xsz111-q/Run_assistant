@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Run_assistant 配置文件示例（Iter 2）
+Run_assistant 配置文件示例（Iter 3）
 复制为 config.py 后填入自己的 Key
 """
 
@@ -22,7 +22,7 @@ LLM_API_KEY = ""
 LLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 DEFAULT_MODEL_NAME = "qwen-plus-latest"
-REPORT_MODEL_NAME  = "qwen-max-3"
+REPORT_MODEL_NAME  = "qwen-max"
 
 # ============================== 搜索 API ==============================
 TAVILY_API_KEY    = ""
@@ -56,3 +56,18 @@ ENGINE_STARTUP_TIMEOUT = 60
 ENGINE_TIMEOUT = 900
 STATUS_POLL_INTERVAL = 1.0
 FORUM_TAIL_INTERVAL = 0.5
+
+# ============================== 调度器（Iter 3，简化参数） ==============================
+ORCH_MAX_ROUNDS = 2
+ORCH_MAX_LLM_CALLS = 60
+ORCH_TIMEOUT = 600
+ORCH_ROUND_TIMEOUT = 300
+ORCH_STATE_DIR = "logs/orchestrator"
+ORCH_LLM_CALLS_PER_ENGINE = 6
+
+# ============================== 最终报告（Iter 3） ==============================
+FINAL_REPORTS_DIR = "final_reports"
+REPORT_TEMPLATE_DIR = "ReportEngine/report_template"
+REPORT_TEMPLATE_COUNT = 21
+REPORT_MAX_CHARS_PER_ENGINE = 1800
+REPORT_HTML_MAX_TOKENS = 6000

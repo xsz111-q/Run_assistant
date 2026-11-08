@@ -11,9 +11,11 @@ env/
 
 # 运行产物
 reports/*.md
+final_reports/
 logs/
 *_engine_streamlit_reports/
 data/*.xlsx
+config_overrides.json
 
 # IDE
 .idea/
