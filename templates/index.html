@@ -18,7 +18,7 @@
     }
     header h1 { font-size: 26px; font-weight: 600; }
     header p  { color: #777; margin-top: 6px; font-size: 14px; }
-    header nav a {
+    header nav a, header nav span {
       display: inline-block; margin-top: 8px; margin-left: 8px;
       padding: 6px 14px; border-radius: 6px; background: #eef2ff;
       color: #4338ca; text-decoration: none; font-size: 13px; font-weight: 500;
@@ -177,8 +177,21 @@
   <nav>
     <a href="/training/">📂 训练数据管理</a>
     <a href="/setup/">⚙️ 系统配置</a>
+    <span id="userChip" style="display:none;background:#ecfdf5;color:#15803d;"></span>
+    <a href="/auth/logout" id="logoutLink" style="display:none;background:#fef2f2;color:#b91c1c;">退出</a>
   </nav>
 </header>
+<script>
+  // 显示登录态：已登录显示用户名+退出，未登录跳登录页由后端守卫处理
+  fetch('/auth/api/me').then(r => r.json()).then(d => {
+    if (d.logged_in) {
+      const chip = document.getElementById('userChip');
+      chip.textContent = '👤 ' + d.username;
+      chip.style.display = 'inline-block';
+      document.getElementById('logoutLink').style.display = 'inline-block';
+    }
+  }).catch(() => {});
+</script>
 
 <main>
 

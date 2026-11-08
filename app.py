@@ -26,7 +26,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_ROOT))
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 
 import config
 from utils.process_manager import ENGINES, EngineProcessManager
@@ -43,10 +43,35 @@ app = Flask(
 )
 app.secret_key = "run_assistant_iter3"
 
+from routes.auth import auth_bp, PUBLIC_ENDPOINTS
 from routes.training_data import training_data_bp
 from routes.setup import setup_bp
+app.register_blueprint(auth_bp)
 app.register_blueprint(training_data_bp)
 app.register_blueprint(setup_bp)
+
+from models.user import ensure_table as ensure_user_table
+ensure_user_table()
+
+
+# ---------- 登录守卫 ----------
+# 免登录白名单：登录/注册页、静态资源、引擎状态查询（供轮询）
+_OPEN_PREFIXES = ('/auth', '/static')
+
+
+@app.before_request
+def _require_login():
+    if request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if any(request.path.startswith(p) for p in _OPEN_PREFIXES):
+        return None
+    if 'user_id' in session:
+        return None
+    # API 请求返回 401 JSON；页面请求重定向到登录页
+    if request.path.startswith('/api/') or request.is_json:
+        return jsonify({'success': False, 'message': '未登录'}), 401
+    return redirect(url_for('auth.login', next=request.path))
+
 
 try:
     from flask_socketio import SocketIO
