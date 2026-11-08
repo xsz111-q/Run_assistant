@@ -177,6 +177,7 @@
   <nav>
     <a href="/training/">📂 训练数据管理</a>
     <a href="/setup/">⚙️ 系统配置</a>
+    <a href="/auth/profile" id="profileLink" style="display:none;background:#eff6ff;color:#1d4ed8;">📝 我的档案</a>
     <span id="userChip" style="display:none;background:#ecfdf5;color:#15803d;"></span>
     <a href="/auth/logout" id="logoutLink" style="display:none;background:#fef2f2;color:#b91c1c;">退出</a>
   </nav>
@@ -189,6 +190,7 @@
       chip.textContent = '👤 ' + d.username;
       chip.style.display = 'inline-block';
       document.getElementById('logoutLink').style.display = 'inline-block';
+      document.getElementById('profileLink').style.display = 'inline-block';
     }
   }).catch(() => {});
 </script>

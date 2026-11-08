@@ -51,12 +51,14 @@ app.register_blueprint(training_data_bp)
 app.register_blueprint(setup_bp)
 
 from models.user import ensure_table as ensure_user_table
+from models.user_profile import ensure_table as ensure_profile_table
 ensure_user_table()
+ensure_profile_table()
 
 
 # ---------- 登录守卫 ----------
-# 免登录白名单：登录/注册页、静态资源、引擎状态查询（供轮询）
-_OPEN_PREFIXES = ('/auth', '/static')
+# 免登录白名单：登录/注册页、登录态查询（前端导航用）、静态资源、引擎状态查询（供轮询）
+_OPEN_PREFIXES = ('/auth/login', '/auth/register', '/auth/api/me', '/static')
 
 
 @app.before_request
