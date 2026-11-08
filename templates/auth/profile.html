@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的档案 - Synapse Run</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei",system-ui,sans-serif; background:#f3f4f6; min-height:100vh; }
+  .nav { background:#fff; padding:14px 24px; box-shadow:0 1px 3px rgba(0,0,0,.08); display:flex; gap:16px; align-items:center; }
+  .nav a { color:#4f46e5; text-decoration:none; font-size:14px; }
+  .container { max-width:640px; margin:32px auto; padding:0 16px; }
+  .card { background:#fff; border-radius:12px; padding:32px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+  h1 { font-size:20px; color:#111827; margin-bottom:6px; }
+  .sub { color:#6b7280; font-size:13px; margin-bottom:24px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .field { display:flex; flex-direction:column; }
+  .field.full { grid-column:1 / -1; }
+  label { font-size:13px; color:#374151; margin-bottom:6px; }
+  input, select, textarea { padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; font-family:inherit; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:#4f46e5; }
+  textarea { resize:vertical; min-height:64px; }
+  button { margin-top:20px; width:100%; padding:12px; background:#4f46e5; color:#fff; border:none; border-radius:8px; font-size:15px; cursor:pointer; }
+  button:hover { background:#4338ca; }
+  .msg { margin-top:14px; padding:10px 12px; border-radius:8px; font-size:14px; display:none; }
+  .msg.ok { display:block; background:#ecfdf5; color:#15803d; }
+  .msg.err { display:block; background:#fef2f2; color:#b91c1c; }
+</style>
+</head>
+<body>
+<div class="nav">
+  <a href="/">← 返回主页</a>
+  <a href="/training/">训练数据管理</a>
+</div>
+<div class="container">
+  <div class="card">
+    <h1>我的档案</h1>
+    <p class="sub">填写后，分析引擎将基于你的画像提供个性化训练建议</p>
+    <form id="profileForm">
+      <div class="grid">
+        <div class="field">
+          <label>性别</label>
+          <select name="gender">
+            <option value="">请选择</option>
+            <option value="男" {% if profile.gender=='男' %}selected{% endif %}>男</option>
+            <option value="女" {% if profile.gender=='女' %}selected{% endif %}>女</option>
+            <option value="其他" {% if profile.gender=='其他' %}selected{% endif %}>其他</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>年龄</label>
+          <input type="number" name="age" min="1" max="120" value="{{ profile.age or '' }}">
+        </div>
+        <div class="field">
+          <label>职业</label>
+          <input type="text" name="occupation" value="{{ profile.occupation or '' }}" placeholder="如：软件工程师">
+        </div>
+        <div class="field">
+          <label>身高 (cm)</label>
+          <input type="number" step="0.1" name="height_cm" value="{{ profile.height_cm or '' }}" placeholder="如：175">
+        </div>
+        <div class="field">
+          <label>体重 (kg)</label>
+          <input type="number" step="0.1" name="weight_kg" value="{{ profile.weight_kg or '' }}" placeholder="如：65">
+        </div>
+        <div class="field">
+          <label>特殊疾病</label>
+          <input type="text" name="medical_conditions" value="{{ profile.medical_conditions or '' }}" placeholder="如：哮喘；无则留空">
+        </div>
+        <div class="field full">
+          <label>个人时间安排</label>
+          <input type="text" name="schedule" value="{{ profile.schedule or '' }}" placeholder="如：工作日晚 7-9 点、周末上午可训练">
+        </div>
+        <div class="field full">
+          <label>目标</label>
+          <textarea name="goal" placeholder="如：3 个月内完成首个半马，目标配速 6'00&quot;/km">{{ profile.goal or '' }}</textarea>
+        </div>
+      </div>
+      <button type="submit">保存档案</button>
+      <div class="msg" id="msg"></div>
+    </form>
+  </div>
+</div>
+<script>
+document.getElementById('profileForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target).entries());
+  const msg = document.getElementById('msg');
+  try {
+    const res = await fetch('/auth/api/profile', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    msg.className = 'msg ' + (json.success ? 'ok' : 'err');
+    msg.textContent = json.message;
+  } catch (err) {
+    msg.className = 'msg err';
+    msg.textContent = '网络错误，请重试';
+  }
+});
+</script>
+</body>
+</html>

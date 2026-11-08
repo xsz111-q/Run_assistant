@@ -126,3 +126,111 @@ def api_me():
     if 'user_id' in session:
         return jsonify({'logged_in': True, 'username': session.get('username')})
     return jsonify({'logged_in': False})
+
+
+# ---------------- 用户档案（Issue #4） ----------------
+from models.user_profile import UserProfile
+
+_PROFILE_FIELDS = ('gender', 'age', 'occupation', 'height_cm', 'weight_kg',
+                   'medical_conditions', 'schedule', 'goal')
+
+
+def _get_own_profile(db, uid):
+    return db.query(UserProfile).filter(UserProfile.user_id == str(uid)).first()
+
+
+def _parse_profile_payload(data):
+    """解析并校验档案字段，返回 (values_dict, error_message)。
+
+    只处理请求中实际出现的字段——未提交的字段保持原值（部分更新语义），
+    显式提交空值的字段才被置为 None。
+    """
+    values = {}
+    for field in _PROFILE_FIELDS:
+        if field not in data:
+            continue
+        raw = data.get(field)
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            values[field] = None
+            continue
+        if field == 'age':
+            try:
+                age = int(raw)
+                if not (1 <= age <= 120):
+                    return None, '年龄需在 1-120 之间'
+                values[field] = age
+            except (TypeError, ValueError):
+                return None, '年龄必须是数字'
+        elif field in ('height_cm', 'weight_kg'):
+            try:
+                num = float(raw)
+                if num <= 0:
+                    return None, '身高/体重必须为正数'
+                values[field] = round(num, 1)
+            except (TypeError, ValueError):
+                return None, '身高/体重必须是数字'
+        else:
+            values[field] = str(raw).strip()[:64 if field == 'goal' else 255]
+    return values, None
+
+
+@auth_bp.route('/profile', methods=['GET'])
+def profile_page():
+    """档案填写/查看页（需登录，由 app.py 守卫拦截）。"""
+    uid = session.get('user_id')
+    db = SessionLocal()
+    try:
+        profile = _get_own_profile(db, uid)
+        return render_template('auth/profile.html',
+                               profile=profile.to_dict() if profile else {})
+    finally:
+        db.close()
+
+
+@auth_bp.route('/api/profile', methods=['GET', 'POST'])
+def api_profile():
+    """读/写自己的档案。未登录 401（保险丝，正常已被守卫拦截）。"""
+    uid = session.get('user_id')
+    if not uid:
+        return jsonify({'success': False, 'message': '未登录'}), 401
+
+    db = SessionLocal()
+    try:
+        if request.method == 'GET':
+            profile = _get_own_profile(db, uid)
+            return jsonify({'success': True,
+                            'profile': profile.to_dict() if profile else None})
+
+        data = request.get_json(force=True) if request.is_json else request.form
+        values, err = _parse_profile_payload(data)
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+
+        profile = _get_own_profile(db, uid)
+        if profile is None:
+            profile = UserProfile(user_id=str(uid), **values)
+            db.add(profile)
+        else:
+            for field, val in values.items():
+                setattr(profile, field, val)
+        db.commit()
+        return jsonify({'success': True, 'message': '档案已保存',
+                        'profile': profile.to_dict()})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'success': False, 'message': f'保存失败: {e}'}), 500
+    finally:
+        db.close()
+
+
+@auth_bp.route('/api/profile/<int:user_id>', methods=['GET', 'POST', 'PUT'])
+def api_profile_other(user_id):
+    """访问/修改他人档案的防护路由：一律 403（验收标准 3）。"""
+    uid = session.get('user_id')
+    if not uid:
+        return jsonify({'success': False, 'message': '未登录'}), 401
+    if user_id != uid:
+        return jsonify({'success': False, 'message': '无权修改他人档案'}), 403
+    # user_id == uid 时与 /api/profile 等价，直接复用
+    return api_profile()
+
