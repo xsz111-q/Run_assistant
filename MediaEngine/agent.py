@@ -36,21 +36,25 @@ class LogisticsIntelligenceAgent:
         return self._research(query, "", None, output_dir)
 
     def research(self, query: str, guidance_from_host: str = "",
-                 task_id: str = None, output_dir: str = None) -> str:
-        return self._research(query, guidance_from_host, task_id, output_dir)
+                 task_id: str = None, round_no: int = 1,
+                 output_dir: str = None) -> str:
+        return self._research(query, guidance_from_host, task_id, output_dir, round_no)
 
     # ---------- 主流程 ----------
-    def _research(self, query, guidance_from_host, task_id, output_dir) -> str:
+    def _research(self, query, guidance_from_host, task_id, output_dir, round_no=1) -> str:
         out_dir = Path(output_dir) if output_dir else _ROOT / self.REPORT_DIR
         out_dir.mkdir(parents=True, exist_ok=True)
-        fname = f"media_report_{task_id}.md" if task_id else self.OUTPUT_FILE
+        fname = f"media_report_{task_id}_r{round_no}.md" if task_id else self.OUTPUT_FILE
         out_file = out_dir / fname
 
-        print(f"[{self.ENGINE_NAME}] 开始实用情报搜索: {query}")
+        print(f"[{self.ENGINE_NAME}] 第 {round_no} 轮开始实用情报搜索: {query}")
         self._task_id = task_id
         self._status(task_id, status="running", progress=5,
-                     stage="规划情报段落", query=query, report_path="")
-        self._phase(f"收到问题：{query}")
+                     stage=f"第 {round_no} 轮：规划情报段落",
+                     query=query, report_path="", round=round_no)
+        self._phase(f"第 {round_no} 轮收到问题：{query}")
+        if guidance_from_host:
+            self._phase(f"HOST 补充指引：{guidance_from_host}")
 
         try:
             paragraphs = self._plan_paragraphs(query)
@@ -73,8 +77,9 @@ class LogisticsIntelligenceAgent:
             print(f"[{self.ENGINE_NAME}] 报告已写入: {out_file}")
 
             self._status(task_id, status="done", progress=100,
-                         stage="情报搜索完成", report_path=str(out_file))
-            self._post_to_forum(query, summaries, out_file, task_id)
+                         stage=f"第 {round_no} 轮情报搜索完成",
+                         report_path=str(out_file), round=round_no)
+            self._post_to_forum(query, summaries, out_file, task_id, round_no)
             return str(out_file)
         except Exception as e:
             self._status(task_id, status="error", stage="搜索失败",
@@ -99,7 +104,7 @@ class LogisticsIntelligenceAgent:
         except Exception as e:
             print(f"[{self.ENGINE_NAME}] 写阶段日志失败: {e}")
 
-    def _post_to_forum(self, query, summaries, out_file, task_id):
+    def _post_to_forum(self, query, summaries, out_file, task_id, round_no=1):
         if not task_id:
             return
         digest = "；".join(
@@ -108,9 +113,10 @@ class LogisticsIntelligenceAgent:
         try:
             append_post(
                 agent=self.ENGINE_KEY,
-                content=f"针对「{query}」的实用情报检索已完成：{digest}",
+                content=f"第 {round_no} 轮针对「{query}」的实用情报检索已完成：{digest}",
                 task_id=task_id,
                 kind="report",
+                round_no=round_no,
                 report_path=str(out_file),
             )
         except Exception as e:

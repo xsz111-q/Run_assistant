@@ -38,21 +38,37 @@
       min-height: 80px; outline: none;
     }
     textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
-    .ask-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+    .ask-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
     button.ask-btn {
       background: #4f46e5; color: #fff; border: none; border-radius: 8px;
       padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
     }
     button.ask-btn:hover { background: #4338ca; }
     button.ask-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+    button.stop-btn {
+      background: #fff; color: #b91c1c; border: 1px solid #fecaca;
+      border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer;
+    }
+    button.stop-btn:hover { background: #fef2f2; }
     .hint { font-size: 12px; color: #999; margin-left: auto; }
+
+    .orch-bar {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      background: #fff; border-radius: 12px; padding: 14px 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 18px;
+      font-size: 13px; color: #374151;
+    }
+    .orch-bar .round-chip {
+      background: #eef2ff; color: #4338ca; padding: 4px 12px;
+      border-radius: 20px; font-weight: 600;
+    }
+    .orch-bar .phase { color: #6b7280; }
+    .orch-bar .stop-reason { color: #b45309; margin-left: auto; }
 
     .layout { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; }
     @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
 
-    .progress-grid {
-      display: grid; grid-template-columns: 1fr; gap: 12px;
-    }
+    .progress-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
     .eng-card {
       background: #fff; border-radius: 12px; padding: 16px;
       box-shadow: 0 1px 3px rgba(0,0,0,.06);
@@ -75,6 +91,7 @@
     .badge.running { background: #fef3c7; color: #b45309; }
     .badge.done    { background: #dcfce7; color: #15803d; }
     .badge.error   { background: #fee2e2; color: #b91c1c; }
+    .badge.skip    { background: #e0f2fe; color: #0369a1; }
 
     .forum-card {
       background: #0f172a; color: #e2e8f0; border-radius: 12px;
@@ -94,9 +111,38 @@
     .post .who.media   { color: #34d399; }
     .post .who.host    { color: #fbbf24; }
     .post .time { color: #64748b; font-size: 11px; }
+    .post .round-tag { font-size: 10px; color: #94a3b8; background: rgba(148,163,184,.15);
+      padding: 1px 6px; border-radius: 8px; }
     .post .body { font-size: 13px; line-height: 1.65; color: #cbd5e1; white-space: pre-wrap; }
     .post.host { background: rgba(251,191,36,.08); border-radius: 8px; padding: 12px 10px; margin: 6px 0; }
     .empty { color: #64748b; font-size: 13px; padding: 18px 0; }
+
+    .arb-card {
+      background: #fffaf0; border: 1px solid #fde68a; border-radius: 12px;
+      padding: 20px; margin-top: 22px; display: none;
+    }
+    .arb-card h2 { font-size: 16px; margin-bottom: 14px; }
+    .arb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    @media (max-width: 820px) { .arb-grid { grid-template-columns: 1fr; } }
+    .arb-grid h4 { font-size: 12px; color: #92400e; margin-bottom: 6px; }
+    .arb-grid p, .arb-grid li { font-size: 13px; line-height: 1.65; color: #44403c; }
+    .arb-grid ul { padding-left: 18px; }
+    .arb-next { margin-top: 14px; font-size: 13px; color: #92400e;
+      background: #fef3c7; border-radius: 8px; padding: 10px 12px; display: none; }
+
+    .final-card {
+      background: #fff; border-radius: 12px; padding: 20px; margin-top: 22px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06); display: none;
+    }
+    .final-card h2 { font-size: 16px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .final-card .tpl { font-size: 11px; color: #6b7280; background: #f3f4f6;
+      padding: 2px 8px; border-radius: 10px; font-weight: 400; }
+    .final-card a { margin-left: auto; font-size: 13px; color: #4f46e5; text-decoration: none; }
+    .final-card iframe {
+      width: 100%; height: 780px; border: 1px solid #eef2f7; border-radius: 10px;
+      background: #fff;
+    }
 
     .reports-area { margin-top: 22px; }
     .reports-area h2 { font-size: 17px; margin-bottom: 10px; }
@@ -126,10 +172,11 @@
 <header>
   <div>
     <h1>Synapse Run · 跑步训练智能分析</h1>
-    <p>三个独立运行的 AI Agent 协作：运动科学家 · 理论专家 · 实用情报</p>
+    <p>三方专家协作 + 总教练仲裁 + 自动生成最终报告</p>
   </div>
   <nav>
     <a href="/training/">📂 训练数据管理</a>
+    <a href="/setup/">⚙️ 系统配置</a>
   </nav>
 </header>
 
@@ -139,9 +186,16 @@
     <h2>🎯 提出你的问题</h2>
     <textarea id="queryInput" placeholder="例如：如何提升 10 公里跑成绩？我下周要跑无锡马拉松，有什么注意事项？"></textarea>
     <div class="ask-row">
-      <button class="ask-btn" id="askBtn">🚀 启动三引擎分析</button>
-      <span class="hint">三个引擎在各自 Streamlit 进程中运行 · 请保持本页打开</span>
+      <button class="ask-btn" id="askBtn">🚀 启动多智能体分析</button>
+      <button class="stop-btn" id="stopBtn" style="display:none">■ 停止</button>
+      <span class="hint">三引擎并行 → HOST 仲裁 → 最多 2 轮 → 最终报告 · 请保持本页打开</span>
     </div>
+  </div>
+
+  <div class="orch-bar" id="orchBar" style="display:none">
+    <span class="round-chip">第 <b id="roundNow">1</b> / <b id="roundMax">2</b> 轮</span>
+    <span class="phase" id="orchPhase">调度中…</span>
+    <span class="stop-reason" id="orchStop"></span>
   </div>
 
   <div class="layout">
@@ -177,9 +231,26 @@
     <div class="forum-card">
       <h2>💬 智能体论坛 <span class="forum-live" id="forumLive">● 实时</span></h2>
       <div class="forum-list" id="forumList">
-        <div class="empty">提问后，三个引擎会在这里依次发言…</div>
+        <div class="empty">提问后，三位专家与 HOST 会在这里依次发言…</div>
       </div>
     </div>
+  </div>
+
+  <div class="arb-card" id="arbCard">
+    <h2>🧑‍⚖️ HOST 仲裁 · 第 <span id="arbRound">1</span> 轮</h2>
+    <div class="arb-grid">
+      <div><h4>三方共识</h4><p id="arbConsensus">—</p></div>
+      <div><h4>分歧点</h4><ul id="arbConflicts"><li>—</li></ul></div>
+      <div><h4>信息盲区</h4><ul id="arbSpots"><li>—</li></ul></div>
+    </div>
+    <div class="arb-next" id="arbNext"></div>
+  </div>
+
+  <div class="final-card" id="finalCard">
+    <h2>📘 最终报告 <span class="tpl" id="finalTemplate"></span>
+      <a id="finalDownload" href="#" target="_blank">⬇ 下载 HTML</a>
+    </h2>
+    <iframe id="finalIframe" src="about:blank"></iframe>
   </div>
 
   <div class="reports-area">
@@ -209,9 +280,27 @@ const STATUS_TEXT = {
   pending: "等待中", queued: "启动中", running: "运行中…",
   done: "✅ 完成", error: "❌ 失败"
 };
+const PHASE_TEXT = {
+  starting: "正在启动三引擎…",
+  starting_round: "正在启动引擎进程…",
+  round1_running: "第 1 轮：三引擎并行分析",
+  arbitration: "HOST 正在仲裁…",
+  round2_running: "第 2 轮：定向复跑",
+  finished: "流程结束",
+  reporting: "正在生成最终报告…"
+};
 let currentTaskId = null;
+let currentQuery = "";
 let pollTimer = null;
 let finished = false;
+let builtRound = 0;
+let currentEngines = {};
+
+function ensureIframes(round) {
+  if (!round || round === builtRound || !currentTaskId) return;
+  builtRound = round;
+  triggerIframes(currentTaskId, currentQuery, round, currentEngines);
+}
 
 // ---------- 论坛 ----------
 const forumList = document.getElementById("forumList");
@@ -225,15 +314,15 @@ function fmtTime(ts) {
 function renderPost(post) {
   if (forumEmpty) { forumList.innerHTML = ""; forumEmpty = false; }
   const div = document.createElement("div");
-  div.className = "post" + (post.kind === "host_speech" ? " host" : "");
+  div.className = "post" + (post.kind === "arbitration" || post.agent === "host" ? " host" : "");
   const who = post.agent || "";
   div.innerHTML = `
     <div class="meta">
       <span class="who ${who}">${post.agent_name || who}</span>
+      <span class="round-tag">R${post.round || 1}</span>
       <span class="time">${fmtTime(post.ts)}</span>
     </div>
     <div class="body"></div>`;
-  // 用 textContent 避免 HTML 注入
   div.querySelector(".body").textContent = post.content || "";
   forumList.appendChild(div);
   forumList.scrollTop = forumList.scrollHeight;
@@ -249,32 +338,76 @@ if (window.io) {
   });
   socket.on("forum_history", (data) => {
     if (!(data.posts || []).length) return;
-    forumList.innerHTML = "";     // 重连时避免重复渲染
+    forumList.innerHTML = "";
     forumEmpty = false;
     data.posts.forEach(renderPost);
   });
   socket.on("forum_message", renderPost);
-  socket.on("host_speech", (data) => {
-    // 主持人发言会同时以 forum_message 到达，这里只兜底
-    if (data && data.content && !data.post) renderPost(data);
+
+  socket.on("round_started", (data) => {
+    if (data.task_id !== currentTaskId) return;
+    document.getElementById("roundNow").textContent = data.round;
+    currentEngines = data.engines || currentEngines;
+    ensureIframes(data.round);
+  });
+
+  socket.on("arbitration", (data) => {
+    if (data.task_id !== currentTaskId) return;
+    renderArbitration(data);
+  });
+
+  socket.on("task_done", (data) => {
+    if (data.task_id !== currentTaskId) return;
+    onFinished(data);
   });
 } else {
   document.getElementById("forumLive").textContent = "○ 轮询模式";
 }
 
 // ---------- 隐藏 iframe：建立 Streamlit 会话以触发引擎 ----------
-function triggerIframes(taskId, query, engines) {
+function triggerIframes(taskId, query, round, engines) {
   const host = document.getElementById("iframe-host");
   host.innerHTML = "";
-  Object.entries(engines).forEach(([key, info]) => {
+  Object.entries(engines || {}).forEach(([key, info]) => {
     const link = document.getElementById("link-" + key);
-    if (link) { link.href = info.port ? `http://localhost:${info.port}` : "#"; link.style.display = "inline"; }
-    if (!info.ready) return;
+    if (link) { link.href = `http://localhost:${info.port}`; link.style.display = "inline"; }
     const f = document.createElement("iframe");
-    f.src = `http://localhost:${info.port}/?task_id=${taskId}&auto_search=true&query=${encodeURIComponent(query)}`;
+    f.src = `http://localhost:${info.port}/?task_id=${taskId}`
+          + `&round=${round}&auto_search=true&query=${encodeURIComponent(query)}`;
     f.width = "1"; f.height = "1";
     host.appendChild(f);
   });
+}
+
+// ---------- 仲裁面板 ----------
+function renderArbitration(a) {
+  const card = document.getElementById("arbCard");
+  card.style.display = "block";
+  document.getElementById("arbRound").textContent = a.round || 1;
+  document.getElementById("arbConsensus").textContent = a.consensus || "—";
+
+  const setList = (id, items) => {
+    const el = document.getElementById(id);
+    el.innerHTML = "";
+    const arr = (items || []).filter(Boolean);
+    if (!arr.length) { el.innerHTML = "<li>无</li>"; return; }
+    arr.forEach(t => {
+      const li = document.createElement("li");
+      li.textContent = t;
+      el.appendChild(li);
+    });
+  };
+  setList("arbConflicts", a.conflicts);
+  setList("arbSpots", a.blind_spots);
+
+  const next = document.getElementById("arbNext");
+  if (a.need_rerun && a.rerun_engines && a.rerun_engines.length) {
+    next.style.display = "block";
+    next.textContent = `裁决：进入第 2 轮，复跑 ${a.rerun_engines.join(" / ")}。指引：${a.guidance || "—"}`;
+  } else {
+    next.style.display = "block";
+    next.textContent = "裁决：三方信息已足够，不再复跑，直接生成最终报告。";
+  }
 }
 
 // ---------- 提问 ----------
@@ -284,10 +417,11 @@ document.getElementById("askBtn").onclick = async () => {
 
   const btn = document.getElementById("askBtn");
   btn.disabled = true;
-  btn.textContent = "⏳ 正在启动三个引擎…";
+  btn.textContent = "⏳ 正在启动…";
+  currentQuery = q;
   finished = false;
   if (pollTimer) clearInterval(pollTimer);
-  resetCards();
+  resetViews();
 
   try {
     const r = await fetch("/api/ask", {
@@ -298,8 +432,11 @@ document.getElementById("askBtn").onclick = async () => {
     if (!r.ok || data.error) { alert(data.error || "启动失败"); resetBtn(); return; }
 
     currentTaskId = data.task_id;
-    triggerIframes(data.task_id, q, data.engines);
-    btn.textContent = "⏳ 三引擎协作中…";
+    currentEngines = data.engines || {};
+    document.getElementById("orchBar").style.display = "flex";
+    document.getElementById("roundMax").textContent = data.max_rounds || 2;
+    document.getElementById("stopBtn").style.display = "inline-block";
+    btn.textContent = "⏳ 多智能体协作中…";
     pollTimer = setInterval(pollStatus, 2000);
   } catch (e) {
     alert("启动失败：" + e.message);
@@ -307,20 +444,35 @@ document.getElementById("askBtn").onclick = async () => {
   }
 };
 
+document.getElementById("stopBtn").onclick = async () => {
+  if (!currentTaskId) return;
+  await fetch(`/api/task/${currentTaskId}/stop`, {method: "POST"});
+  document.getElementById("orchStop").textContent = "已请求停止…";
+};
+
 function resetBtn() {
   const b = document.getElementById("askBtn");
-  b.disabled = false; b.textContent = "🚀 启动三引擎分析";
+  b.disabled = false; b.textContent = "🚀 启动多智能体分析";
 }
 
-function resetCards() {
+function resetViews() {
+  builtRound = 0;
   ENGINES.forEach(k => {
     document.getElementById("card-" + k).className = "eng-card pending";
     const b = document.getElementById("badge-" + k);
     b.className = "badge pending"; b.textContent = "等待中";
     document.getElementById("bar-" + k).style.width = "0%";
+    document.getElementById("stage-" + k).textContent = "";
     document.getElementById("report-" + k).classList.remove("show");
     document.getElementById("body-" + k).innerHTML = "";
   });
+  forumList.innerHTML = '<div class="empty">三位专家与 HOST 会在这里依次发言…</div>';
+  forumEmpty = true;
+  document.getElementById("arbCard").style.display = "none";
+  document.getElementById("arbNext").style.display = "none";
+  document.getElementById("finalCard").style.display = "none";
+  document.getElementById("orchStop").textContent = "";
+  document.getElementById("stopBtn").style.display = "inline-block";
 }
 
 async function pollStatus() {
@@ -329,27 +481,73 @@ async function pollStatus() {
     const r = await fetch("/api/task/" + currentTaskId);
     if (!r.ok) return;
     const data = await r.json();
-
-    ENGINES.forEach(k => {
-      const e = data.engines[k] || {status: "pending"};
-      const status = e.status || "pending";
-      document.getElementById("card-" + k).className = "eng-card " + status;
-      const b = document.getElementById("badge-" + k);
-      b.className = "badge " + status;
-      b.textContent = STATUS_TEXT[status] || status;
-      document.getElementById("bar-" + k).style.width = (e.progress || 0) + "%";
-      if (e.stage) document.getElementById("stage-" + k).textContent =
-        e.stage + (e.error ? "｜" + e.error : "");
-    });
-
-    const allDone = ENGINES.every(k => ["done", "error"].includes(data.engines[k].status));
-    if (allDone && !finished) {
-      finished = true;
-      clearInterval(pollTimer);
-      resetBtn();
-      ENGINES.forEach(k => fetchReport(k));
+    applyStatus(data);
+    if (!finished && ["done", "timeout", "stopped", "error"].includes(data.status)
+        && data.phase === "finished") {
+      onFinished(data);
     }
   } catch (e) { console.warn(e); }
+}
+
+function applyStatus(data) {
+  if (data.round) document.getElementById("roundNow").textContent = data.round;
+  if (data.phase && /round\d+_running/.test(data.phase)) {
+    ensureIframes(data.round);
+  }
+  const phase = document.getElementById("orchPhase");
+  phase.textContent = PHASE_TEXT[data.phase] || data.phase || "";
+  if (data.stop_reason) {
+    const map = {
+      no_conflict: "无矛盾，未复跑",
+      max_rounds_reached: "已达最大轮次",
+      llm_budget_exceeded: "LLM 预算用尽",
+      timeout: "整体超时",
+      manual_stop: "手动停止",
+      no_engine_to_rerun: "无引擎需要复跑"
+    };
+    document.getElementById("orchStop").textContent = map[data.stop_reason] || data.stop_reason;
+  }
+
+  ENGINES.forEach(k => {
+    const e = (data.engines || {})[k] || {status: "pending"};
+    const status = e.status || "pending";
+    document.getElementById("card-" + k).className = "eng-card " + status;
+    const b = document.getElementById("badge-" + k);
+    b.className = "badge " + status;
+    b.textContent = (STATUS_TEXT[status] || status) + (e.round ? ` · R${e.round}` : "");
+    document.getElementById("bar-" + k).style.width = (e.progress || 0) + "%";
+    if (e.stage) document.getElementById("stage-" + k).textContent =
+      e.stage + (e.error ? "｜" + e.error : "");
+  });
+
+  if (data.arbitration && (data.arbitration.consensus || data.arbitration.host_speech)) {
+    renderArbitration({...data.arbitration, round: data.arbitration_round || data.round});
+  }
+  if (data.template_used) document.getElementById("finalTemplate").textContent =
+    "模板：" + data.template_used;
+}
+
+async function onFinished(data) {
+  if (finished) return;
+  finished = true;
+  if (pollTimer) clearInterval(pollTimer);
+  resetBtn();
+  document.getElementById("stopBtn").style.display = "none";
+  document.getElementById("orchPhase").textContent = "流程结束";
+
+  ENGINES.forEach(k => fetchReport(k));
+
+  const tpl = data.template_used || "";
+  if (tpl) document.getElementById("finalTemplate").textContent = "模板：" + tpl;
+
+  const card = document.getElementById("finalCard");
+  card.style.display = "block";
+  document.getElementById("finalIframe").src = `/report/view/${currentTaskId}?t=${Date.now()}`;
+  document.getElementById("finalDownload").href = `/report/download/${currentTaskId}`;
+
+  if (data.error) {
+    document.getElementById("orchStop").textContent = "报告生成异常：" + data.error;
+  }
 }
 
 async function fetchReport(key) {

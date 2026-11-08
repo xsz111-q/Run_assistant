@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>系统配置 · Synapse Run</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f4f6fa; color: #222; padding: 24px;
+    }
+    header {
+      max-width: 980px; margin: 0 auto 20px;
+      display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    header h1 { font-size: 24px; }
+    header p { color: #777; font-size: 13px; margin-top: 6px; }
+    header nav a {
+      display: inline-block; margin-left: 8px; padding: 6px 14px; border-radius: 6px;
+      background: #eef2ff; color: #4338ca; text-decoration: none; font-size: 13px;
+    }
+    main { max-width: 980px; margin: 0 auto; }
+    .card {
+      background: #fff; border-radius: 12px; padding: 22px; margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    }
+    .card h2 { font-size: 16px; margin-bottom: 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+    label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 5px; }
+    input {
+      width: 100%; padding: 9px 11px; font-size: 13px; border: 1px solid #e5e7eb;
+      border-radius: 7px; outline: none; font-family: inherit;
+    }
+    input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+    button {
+      border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px;
+      font-weight: 600; cursor: pointer;
+    }
+    .primary { background: #4f46e5; color: #fff; }
+    .primary:hover { background: #4338ca; }
+    .ghost { background: #fff; color: #374151; border: 1px solid #e5e7eb; }
+    .ghost:hover { border-color: #4f46e5; color: #4338ca; }
+    #msg { font-size: 13px; margin-left: auto; }
+    .ok { color: #15803d; } .err { color: #b91c1c; }
+
+    .checks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    @media (max-width: 720px) { .checks { grid-template-columns: 1fr 1fr; } }
+    .check {
+      border: 1px solid #eef2f7; border-radius: 10px; padding: 14px; background: #fbfcfe;
+    }
+    .check .name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .check .state { font-size: 12px; line-height: 1.5; word-break: break-all; }
+    .check.pending .state { color: #9ca3af; }
+    footer { text-align: center; color: #aaa; font-size: 12px; margin-top: 30px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⚙️ 系统配置</h1>
+    <p>修改后写回 config.py 并立即热重载；端口与数据库连接变更需重启 Flask</p>
+  </div>
+  <nav><a href="/">← 返回主页</a><a href="/training/">训练数据</a></nav>
+</header>
+
+<main>
+  <div class="card">
+    <h2>🔑 LLM 配置</h2>
+    <div class="grid" id="group-llm"></div>
+  </div>
+
+  <div class="card">
+    <h2>🗄️ 数据库</h2>
+    <div class="grid" id="group-db"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔎 搜索 API</h2>
+    <div class="grid" id="group-search"></div>
+  </div>
+
+  <div class="card">
+    <h2>🧭 调度参数</h2>
+    <div class="grid" id="group-scheduler"></div>
+    <div class="row">
+      <button class="primary" id="saveBtn">保存配置</button>
+      <button class="ghost" id="healthBtn">运行健康检查</button>
+      <span id="msg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🩺 健康检查</h2>
+    <div class="checks">
+      <div class="check pending" id="check-llm"><div class="name">LLM（DashScope）</div><div class="state">未检测</div></div>
+      <div class="check pending" id="check-mysql"><div class="name">MySQL</div><div class="state">未检测</div></div>
+      <div class="check pending" id="check-tavily"><div class="name">Tavily</div><div class="state">未检测</div></div>
+      <div class="check pending" id="check-bocha"><div class="name">博查搜索</div><div class="state">未检测</div></div>
+    </div>
+  </div>
+</main>
+
+<footer>Synapse Run — 跑步训练多智能体协作分析系统</footer>
+
+<script>
+const LABELS = {
+  LLM_API_KEY: "API Key", LLM_BASE_URL: "Base URL",
+  DEFAULT_MODEL_NAME: "子引擎模型", REPORT_MODEL_NAME: "报告模型",
+  DB_HOST: "主机", DB_PORT: "端口", DB_USER: "用户", DB_PASSWORD: "密码",
+  DB_NAME: "数据库名", DB_CHARSET: "字符集",
+  TAVILY_API_KEY: "Tavily Key", BOCHA_WEB_SEARCH_API_KEY: "博查 Key",
+  ORCH_MAX_ROUNDS: "最大轮次", ORCH_MAX_LLM_CALLS: "LLM 调用上限",
+  ORCH_TIMEOUT: "总超时（秒）", ORCH_ROUND_TIMEOUT: "单轮超时（秒）",
+  PARAGRAPHS_PER_ENGINE: "每引擎段落数"
+};
+
+function renderGroup(group, data) {
+  const host = document.getElementById("group-" + group);
+  host.innerHTML = "";
+  Object.keys(data).forEach(key => {
+    const wrap = document.createElement("div");
+    const label = document.createElement("label");
+    label.textContent = LABELS[key] || key;
+    const input = document.createElement("input");
+    input.id = "f-" + key;
+    input.dataset.key = key;
+    input.value = window.__values[key] ?? "";
+    wrap.appendChild(label); wrap.appendChild(input);
+    host.appendChild(wrap);
+  });
+}
+
+async function loadConfig() {
+  const r = await fetch("/setup/api/config");
+  const d = await r.json();
+  window.__values = d.values || {};
+  Object.keys(d.groups || {}).forEach(g => renderGroup(g, d.groups[g]));
+}
+loadConfig();
+
+document.getElementById("saveBtn").onclick = async () => {
+  const msg = document.getElementById("msg");
+  const payload = {};
+  document.querySelectorAll("input[data-key]").forEach(i => payload[i.dataset.key] = i.value);
+
+  msg.textContent = "保存中…"; msg.className = "";
+  const r = await fetch("/setup/api/config", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload),
+  });
+  const d = await r.json();
+  msg.textContent = d.message || (d.success ? "已保存" : "保存失败");
+  msg.className = d.success ? "ok" : "err";
+};
+
+document.getElementById("healthBtn").onclick = async () => {
+  const btn = document.getElementById("healthBtn");
+  btn.disabled = true; btn.textContent = "检测中…";
+  ["llm", "mysql", "tavily", "bocha"].forEach(k => {
+    const el = document.getElementById("check-" + k);
+    el.className = "check pending";
+    el.querySelector(".state").textContent = "检测中…";
+  });
+
+  try {
+    const r = await fetch("/setup/api/health");
+    const d = await r.json();
+    Object.entries(d.checks || {}).forEach(([k, v]) => {
+      const el = document.getElementById("check-" + k);
+      if (!el) return;
+      el.className = "check";
+      el.querySelector(".state").innerHTML =
+        `<span class="${v.ok ? "ok" : "err"}">${v.ok ? "✅ 正常" : "❌ 失败"}</span>`
+        + `（${v.elapsed_ms}ms）<br>` + v.message;
+    });
+  } catch (e) {
+    document.getElementById("msg").textContent = "健康检查失败：" + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "运行健康检查";
+  }
+};
+</script>
+</body>
+</html>

@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-"""
-Run_assistant Flask 主应用（Iter 2）
+"""Run_assistant Flask 主应用（Iter 3）
 
-主页：统一提问 → 以子进程启动三个 Streamlit 引擎（8501/8502/8503）
-      → 页面用隐藏 iframe 建立 Streamlit 会话，引擎在自己的进程里跑出报告
-      → 引擎写运行态 / 论坛发言，Flask 通过 Socket.IO 实时推送论坛消息
-      → 三个引擎全部完成后，HOST（总教练）汇总发言
+主页：统一提问
+  → Orchestrator 调度：第 1 轮三引擎并行 → HOST 仲裁 → 第 2 轮定向复跑
+  → ReportEngine：选模板 + 生成最终 HTML 报告
+  → Flask 通过 Socket.IO 实时推送论坛消息 / 轮次 / 仲裁 / 最终报告
 
-训练数据页：/training/ （数据层只有本地 Excel 导入）
+其他页面：
+  /training/  训练数据管理（本地 Excel 导入 + 增删改查）
+  /setup/     系统配置（LLM / 数据库 / 搜索 API / 调度参数 + 健康检查）
 
 启动：
   conda activate synapse_run
@@ -15,8 +16,6 @@ Run_assistant Flask 主应用（Iter 2）
 """
 
 import logging
-import os
-import subprocess
 import sys
 import threading
 import time
@@ -27,13 +26,14 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_ROOT))
 
-import requests
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, Response, jsonify, render_template, request
 
 import config
-from utils.engine_runtime import read_status, write_status
+from utils.process_manager import ENGINES, EngineProcessManager
+from utils.engine_runtime import read_status
 from ForumEngine.monitor import ensure_forum, read_posts, read_from_offset
-from ForumEngine.llm_host import generate_host_speech
+from orchestrator.scheduler import OrchestratorScheduler, read_orchestrator_state
+from ReportEngine.agent import ReportAgent
 
 # ---------- Flask + Socket.IO ----------
 app = Flask(
@@ -41,232 +41,174 @@ app = Flask(
     template_folder=str(_ROOT / "templates"),
     static_folder=str(_ROOT / "static"),
 )
-app.secret_key = "run_assistant_iter2"
+app.secret_key = "run_assistant_iter3"
 
-# 训练数据管理蓝图（Excel 导入 + 增删改查）
 from routes.training_data import training_data_bp
+from routes.setup import setup_bp
 app.register_blueprint(training_data_bp)
+app.register_blueprint(setup_bp)
 
 try:
     from flask_socketio import SocketIO
     socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
-except Exception:  # 没装 flask-socketio 时降级为纯 HTTP 轮询
+except Exception:      # 没装 flask-socketio 时降级为纯 HTTP 轮询
     socketio = None
-
-
-# ---------- 引擎进程管理 ----------
-ENGINES = {
-    "insight": {"name": "InsightEngine · 运动科学家",
-                "script": "SingleEngineApp/insight_app.py",
-                "port": config.STREAMLIT_INSIGHT},
-    "query": {"name": "QueryEngine · 理论专家",
-              "script": "SingleEngineApp/query_app.py",
-              "port": config.STREAMLIT_QUERY},
-    "media": {"name": "MediaEngine · 实用情报专家",
-              "script": "SingleEngineApp/media_app.py",
-              "port": config.STREAMLIT_MEDIA},
-}
-
-_processes = {}          # key -> Popen
-_process_logs = {}       # key -> 文件句柄
-_proc_lock = threading.Lock()
-
-
-class EngineProcessManager:
-    """用子进程拉起 / 终止三个 Streamlit 引擎"""
-
-    @staticmethod
-    def is_alive(key: str) -> bool:
-        p = _processes.get(key)
-        return bool(p) and p.poll() is None
-
-    @classmethod
-    def stop_all(cls):
-        with _proc_lock:
-            for key, p in list(_processes.items()):
-                if p and p.poll() is None:
-                    try:
-                        p.terminate()
-                        p.wait(timeout=5)
-                    except Exception:
-                        try:
-                            p.kill()
-                        except Exception:
-                            pass
-                _processes.pop(key, None)
-                fh = _process_logs.pop(key, None)
-                if fh:
-                    try:
-                        fh.close()
-                    except Exception:
-                        pass
-        # 给端口一点释放时间
-        time.sleep(1.0)
-
-    @classmethod
-    def start_all(cls, query: str, task_id: str):
-        cls.stop_all()
-        (_ROOT / config.LOGS_DIR).mkdir(parents=True, exist_ok=True)
-
-        for key, info in ENGINES.items():
-            write_status(key, task_id, status="queued", progress=0,
-                         stage="等待引擎启动", query=query, report_path="")
-
-            env = os.environ.copy()
-            env.update({
-                "RUN_QUERY": query,
-                "RUN_TASK_ID": task_id,
-                "PYTHONIOENCODING": "utf-8",
-                "PYTHONUTF8": "1",
-                "PYTHONUNBUFFERED": "1",
-                "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
-            })
-
-            log_path = _ROOT / config.LOGS_DIR / f"{key}.log"
-            log_fh = open(log_path, "a", encoding="utf-8")
-
-            cmd = [
-                sys.executable, "-m", "streamlit", "run",
-                str(_ROOT / info["script"]),
-                "--server.port", str(info["port"]),
-                "--server.address", "127.0.0.1",
-                "--server.headless", "true",
-                "--browser.gatherUsageStats", "false",
-                "--logger.level", "info",
-            ]
-            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            p = subprocess.Popen(
-                cmd, cwd=str(_ROOT), env=env,
-                stdout=log_fh, stderr=subprocess.STDOUT,
-                creationflags=creationflags,
-            )
-            with _proc_lock:
-                _processes[key] = p
-                _process_logs[key] = log_fh
-            print(f"[Flask] 已启动 {key} 引擎进程 pid={p.pid} port={info['port']}")
-
-        # 等端口就绪（最多 ENGINE_STARTUP_TIMEOUT 秒），保证前端 iframe 能连上
-        deadline = time.time() + config.ENGINE_STARTUP_TIMEOUT
-        pending = set(ENGINES)
-        probe = requests.Session()
-        probe.trust_env = False          # 忽略系统代理，访问本机端口
-        while pending and time.time() < deadline:
-            for key in list(pending):
-                port = ENGINES[key]["port"]
-                try:
-                    r = probe.get(f"http://127.0.0.1:{port}/", timeout=1)
-                    if r.status_code < 500:
-                        pending.discard(key)
-                except requests.RequestException:
-                    pass
-            if pending:
-                time.sleep(0.5)
-
-        ready = {k: k not in pending for k in ENGINES}
-        return ready
 
 
 # ---------- 任务状态 ----------
 _tasks = {}
 _tasks_lock = threading.Lock()
-_active_task_id = None   # 当前正在运行的任务（论坛历史只对当前任务可见）
+_schedulers = {}
+_active_task_id = None
+
+
+def _emit(event: str, payload: dict):
+    if socketio:
+        try:
+            socketio.emit(event, payload)
+        except Exception as e:
+            print(f"[Flask] 推送 {event} 失败: {e}")
 
 
 def _ensure_dirs():
-    (_ROOT / config.LOGS_DIR).mkdir(exist_ok=True)
-    (_ROOT / config.RUNTIME_DIR).mkdir(parents=True, exist_ok=True)
-    (_ROOT / config.EXCEL_DATA_DIR).mkdir(exist_ok=True)
-    (_ROOT / config.INSIGHT_REPORTS_DIR).mkdir(exist_ok=True)
-    (_ROOT / config.QUERY_REPORTS_DIR).mkdir(exist_ok=True)
-    (_ROOT / config.MEDIA_REPORTS_DIR).mkdir(exist_ok=True)
+    for d in (config.LOGS_DIR, config.RUNTIME_DIR, config.EXCEL_DATA_DIR,
+              config.ORCH_STATE_DIR, config.FINAL_REPORTS_DIR,
+              config.INSIGHT_REPORTS_DIR, config.QUERY_REPORTS_DIR,
+              config.MEDIA_REPORTS_DIR):
+        (_ROOT / d).mkdir(parents=True, exist_ok=True)
     ensure_forum()
 
 
+def _collect_reports(task_id: str) -> dict:
+    reports = {}
+    for key, info in ENGINES.items():
+        st = read_status(key, task_id)
+        path = st.get("report_path")
+        if not path or not Path(path).exists():
+            continue
+        reports[key] = {
+            "name": info["name"],
+            "path": path,
+            "round": st.get("round", 1),
+            "content": Path(path).read_text(encoding="utf-8"),
+        }
+    return reports
+
+
 def _snapshot(task_id: str) -> dict:
+    sched = _schedulers.get(task_id)
+    orch = sched.snapshot() if sched else read_orchestrator_state(task_id)
+
     engines = {}
-    terminal_count = 0
-    for key in ENGINES:
+    for key, info in ENGINES.items():
         st = read_status(key, task_id)
         status = st.get("status") or "pending"
         engines[key] = {
-            "name": ENGINES[key]["name"],
-            "port": ENGINES[key]["port"],
+            "name": info["name"],
+            "port": info["port"],
             "status": status,
             "progress": st.get("progress", 0),
             "stage": st.get("stage", ""),
+            "round": st.get("round", 1),
             "report_path": st.get("report_path", ""),
             "error": st.get("error", ""),
             "process_alive": EngineProcessManager.is_alive(key),
         }
-        if status in ("done", "error"):
-            terminal_count += 1
 
     meta = _tasks.get(task_id, {})
-    if terminal_count == len(ENGINES):
-        overall = "done"
-    elif terminal_count > 0:
-        overall = "running"
-    else:
-        overall = meta.get("status", "running")
+    rounds = []
+    for r in orch.get("rounds", []):
+        rounds.append({
+            "round": r.get("round"),
+            "targets": r.get("targets", []),
+            "engines": {k: v.get("status") for k, v in (r.get("engines") or {}).items()},
+            "need_rerun": (r.get("arbitration") or {}).get("need_rerun", False),
+        })
 
     return {
         "task_id": task_id,
-        "query": meta.get("query", ""),
-        "status": overall,
+        "query": meta.get("query") or orch.get("query", ""),
+        "status": meta.get("status") or orch.get("status", "running"),
+        "phase": orch.get("phase", ""),
+        "round": orch.get("round", 1),
+        "max_rounds": orch.get("max_rounds", config.ORCH_MAX_ROUNDS),
+        "llm_calls_estimate": orch.get("llm_calls_estimate", 0),
+        "stop_reason": orch.get("stop_reason", "") or meta.get("stop_reason", ""),
+        "arbitration": orch.get("arbitration", {}),
+        "arbitration_round": orch.get("arbitration_round", 0),
+        "rounds": rounds,
         "engines": engines,
-        "host_speech": meta.get("host_speech", ""),
+        "final_report": meta.get("final_report", ""),
+        "template_used": meta.get("template_used", ""),
+        "error": meta.get("error", "") or orch.get("error", ""),
     }
 
 
-def _orchestrate(task_id: str, query: str):
-    """等三个引擎结束 → 触发 HOST 汇总发言"""
+# ---------- 主流程（后台线程） ----------
+def _pipeline(task_id: str, query: str):
+    """调度 → 最终报告"""
     global _active_task_id
-    deadline = time.time() + config.ENGINE_TIMEOUT
-    while time.time() < deadline:
-        snap = _snapshot(task_id)
-        all_terminal = all(v["status"] in ("done", "error") for v in snap["engines"].values())
-        if all_terminal:
-            break
+    sched = _schedulers[task_id]
 
-        # 进程挂了但状态没落盘 → 标记失败，避免永远等待
-        for key, info in snap["engines"].items():
-            if not info["process_alive"] and info["status"] not in ("done", "error"):
-                write_status(key, task_id, status="error",
-                             stage="引擎进程已退出",
-                             error=f"引擎进程未正常结束，请查看 logs/{key}.log")
-        time.sleep(config.STATUS_POLL_INTERVAL)
-
-    snap = _snapshot(task_id)
-    for key, info in snap["engines"].items():
-        if info["status"] not in ("done", "error"):
-            write_status(key, task_id, status="error", stage="任务超时",
-                         error=f"超过 {config.ENGINE_TIMEOUT}s 未完成")
-
-    speech = ""
     try:
-        result = generate_host_speech(read_posts(), query=query, task_id=task_id)
-        speech = result.get("content", "")
+        sched.start(query, task_id).join()
+        state = sched.snapshot()
+
+        reports = _collect_reports(task_id)
+        posts = [p for p in read_posts() if p.get("task_id") == task_id]
+        arbitration = state.get("arbitration") or {}
+
+        meta = {}
+        if reports:
+            with _tasks_lock:
+                _tasks[task_id]["status"] = "reporting"
+            _emit("reporting", {"task_id": task_id})
+            try:
+                meta = ReportAgent().generate(
+                    query, task_id, reports, posts, arbitration)
+            except Exception as e:
+                print(f"[Flask] 最终报告生成失败: {e}")
+                meta = {"error": f"{type(e).__name__}: {e}"}
+        else:
+            meta = {"error": "三个引擎都没有产出报告，无法生成最终报告"}
+
+        with _tasks_lock:
+            _tasks.setdefault(task_id, {})
+            _tasks[task_id].update({
+                "status": state.get("status", "done"),
+                "stop_reason": state.get("stop_reason", ""),
+                "final_report": meta.get("report_path", ""),
+                "template_used": meta.get("template_used", ""),
+                "error": meta.get("error", ""),
+            })
+        _active_task_id = None
+
+        _emit("task_done", {
+            "task_id": task_id,
+            "status": state.get("status", "done"),
+            "stop_reason": state.get("stop_reason", ""),
+            "final_report": meta.get("report_path", ""),
+            "template_used": meta.get("template_used", ""),
+            "error": meta.get("error", ""),
+        })
     except Exception as e:
-        print(f"[Flask] HOST 发言失败: {e}")
-
-    with _tasks_lock:
-        _tasks.setdefault(task_id, {})
-        _tasks[task_id].update({"status": "done", "host_speech": speech})
-    _active_task_id = None
-
-    if socketio:
-        socketio.emit("task_done", {"task_id": task_id, "host_speech": speech})
+        err = f"{type(e).__name__}: {e}"
+        print(f"[Flask] 流程异常: {err}")
+        with _tasks_lock:
+            _tasks.setdefault(task_id, {})
+            _tasks[task_id].update({"status": "error", "error": err})
+        _active_task_id = None
+        _emit("task_done", {"task_id": task_id, "status": "error", "error": err})
 
 
 # ---------- 论坛实时推送 ----------
 def _forum_tail_loop():
-    offset = ensure_forum().stat().st_size   # 只推新消息
+    offset = ensure_forum().stat().st_size      # 只推新消息
     while True:
         try:
             posts, offset = read_from_offset(offset)
             for post in posts:
-                if socketio:
-                    socketio.emit("forum_message", post)
+                _emit("forum_message", post)
         except Exception as e:
             print(f"[Flask] 论坛监听异常: {e}")
         time.sleep(config.FORUM_TAIL_INTERVAL)
@@ -280,11 +222,10 @@ def _start_background():
 if socketio:
     @socketio.on("connect")
     def _on_connect():
-        # 只回放当前正在运行的任务的发言；没有活跃任务时论坛保持空白
         posts = []
         if _active_task_id:
             posts = [p for p in read_posts()
-                     if p.get("task_id") == _active_task_id][-20:]
+                     if p.get("task_id") == _active_task_id][-30:]
         socketio.emit("forum_history", {"posts": posts})
 
 
@@ -313,7 +254,6 @@ def api_ask():
             "status": "running",
             "query": query,
             "created_at": datetime.now().isoformat(),
-            "host_speech": "",
         }
     _active_task_id = task_id
 
@@ -323,18 +263,17 @@ def api_ask():
     except Exception as e:
         print(f"[Flask] 清空论坛日志失败: {e}")
 
-    ready = EngineProcessManager.start_all(query, task_id)
-    if not any(ready.values()):
-        return jsonify({"error": "三个引擎进程都没能启动，请检查 logs/ 下的日志"}), 500
+    sched = OrchestratorScheduler(emit=_emit)
+    _schedulers[task_id] = sched
 
-    threading.Thread(target=_orchestrate, args=(task_id, query), daemon=True).start()
+    threading.Thread(target=_pipeline, args=(task_id, query), daemon=True).start()
 
     return jsonify({
         "task_id": task_id,
         "query": query,
+        "max_rounds": config.ORCH_MAX_ROUNDS,
         "engines": {
-            key: {"port": info["port"], "ready": ready.get(key, False),
-                  "name": info["name"]}
+            key: {"port": info["port"], "name": info["name"]}
             for key, info in ENGINES.items()
         },
     })
@@ -342,12 +281,18 @@ def api_ask():
 
 @app.route("/api/task/<task_id>")
 def api_task_status(task_id):
-    meta = _tasks.get(task_id)
-    if not meta:
-        # 可能是 Flask 重启前的旧任务，仍尝试读运行态
-        if not any(read_status(k, task_id) for k in ENGINES):
-            return jsonify({"error": "task not found"}), 404
+    if task_id not in _schedulers and not read_orchestrator_state(task_id):
+        return jsonify({"error": "task not found"}), 404
     return jsonify(_snapshot(task_id))
+
+
+@app.route("/api/task/<task_id>/stop", methods=["POST"])
+def api_task_stop(task_id):
+    sched = _schedulers.get(task_id)
+    if not sched:
+        return jsonify({"error": "task not found"}), 404
+    sched.stop("manual_stop")
+    return jsonify({"success": True, "message": "已请求停止"})
 
 
 @app.route("/api/report/<engine_key>")
@@ -368,14 +313,63 @@ def api_report(engine_key):
         "engine": engine_key,
         "content": p.read_text(encoding="utf-8"),
         "path": str(p),
+        "round": st.get("round", 1),
         "mtime": datetime.fromtimestamp(p.stat().st_mtime).isoformat(),
+    })
+
+
+@app.route("/report/view/<task_id>")
+def final_report_view(task_id):
+    """最终 HTML 报告（用于主页 iframe 与下载）"""
+    p = _ROOT / config.FINAL_REPORTS_DIR / f"{task_id}.html"
+    if not p.exists():
+        return Response("<h3 style='font-family:sans-serif'>最终报告尚未生成</h3>",
+                        mimetype="text/html")
+    return Response(p.read_text(encoding="utf-8"), mimetype="text/html")
+
+
+@app.route("/report/download/<task_id>")
+def final_report_download(task_id):
+    p = _ROOT / config.FINAL_REPORTS_DIR / f"{task_id}.html"
+    if not p.exists():
+        return jsonify({"error": "最终报告尚未生成"}), 404
+    return Response(
+        p.read_text(encoding="utf-8"),
+        mimetype="text/html",
+        headers={"Content-Disposition":
+                 f'attachment; filename="run_report_{task_id}.html"'},
+    )
+
+
+@app.route("/api/report/final/<task_id>")
+def api_final_report(task_id):
+    p = _ROOT / config.FINAL_REPORTS_DIR / f"{task_id}.html"
+    if not p.exists():
+        return jsonify({"error": "最终报告尚未生成"}), 404
+    meta_path = _ROOT / config.FINAL_REPORTS_DIR / f"{task_id}.json"
+    meta = {}
+    if meta_path.exists():
+        import json
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            meta = {}
+    return jsonify({
+        "task_id": task_id,
+        "path": str(p),
+        "url": f"/report/view/{task_id}",
+        **meta,
     })
 
 
 @app.route("/api/forum")
 def api_forum():
     limit = int(request.args.get("limit", 50))
-    return jsonify({"posts": read_posts()[-limit:]})
+    task_id = request.args.get("task_id")
+    posts = read_posts()
+    if task_id:
+        posts = [p for p in posts if p.get("task_id") == task_id]
+    return jsonify({"posts": posts[-limit:]})
 
 
 @app.route("/api/engines")
@@ -393,6 +387,7 @@ def api_engines():
 # ---------- 启动 ----------
 _start_background()
 
+
 def _mute_werkzeug_dev_warning():
     """屏蔽 “This is a development server...” 提示，保留请求日志"""
 
@@ -405,12 +400,14 @@ def _mute_werkzeug_dev_warning():
 
 if __name__ == "__main__":
     _mute_werkzeug_dev_warning()
-    print("=" * 60)
-    print(" Run_assistant  —  跑步训练多智能体分析系统（Iter 2）")
+    print("=" * 64)
+    print(" Run_assistant  —  跑步训练多智能体分析系统（Iter 3）")
     print(f" 主页      : http://localhost:{config.FLASK_PORT}")
     print(f" 训练数据  : http://localhost:{config.FLASK_PORT}/training/")
-    print(" 引擎端口  : 8501 / 8502 / 8503（由主页统一提问触发）")
-    print("=" * 60)
+    print(f" 系统配置  : http://localhost:{config.FLASK_PORT}/setup/")
+    print(f" 调度参数  : {config.ORCH_MAX_ROUNDS} 轮 / "
+          f"{config.ORCH_MAX_LLM_CALLS} 次 LLM / {config.ORCH_TIMEOUT}s")
+    print("=" * 64)
     try:
         if socketio:
             socketio.run(app, host="0.0.0.0", port=config.FLASK_PORT,
