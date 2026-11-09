@@ -300,6 +300,25 @@ python app.py
 
 ## 🧪 测试说明
 
+### 自动化验收测试（pytest + GitHub Actions）
+
+`tests/` 下的 pytest 用例覆盖 Issue #3–#6 的验收标准（认证、档案、画像注入、报告画像），
+测试使用临时 SQLite，**不需要 MySQL 和任何 API Key**：
+
+```bash
+# Windows PowerShell
+Copy-Item config.example.py config.py
+# macOS / Linux
+cp config.example.py config.py
+
+python -m pytest -q
+```
+
+预期：`40 passed`。
+
+每次 push 与 pull request 都会在 GitHub Actions 上自动执行同一套用例，
+结果见仓库 **Actions → tests** 运行记录。
+
 ### 1. 语法自检
 
 ```bash
@@ -393,6 +412,8 @@ Run_assistant/
 │   └── setup.py                   # 配置读写 + 健康检查
 │
 ├── models/                        # 训练记录 ORM 模型
+├── tests/                         # pytest 自动化验收用例（Issue #3–#6）
+├── .github/workflows/tests.yml    # GitHub Actions：push / PR 自动跑 pytest
 ├── utils/                         # 进程管理、运行态、Excel 解析
 ├── templates/                     # 主页、训练数据页、配置页
 │
