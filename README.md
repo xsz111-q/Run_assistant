@@ -5,16 +5,16 @@
 **智能跑步训练助手 | 多智能体协作系统**
 
 <p>
-<kbd>Python 3.11</kbd>&nbsp; <kbd>MySQL 8.0</kbd>&nbsp; <kbd>v1.0</kbd>
+<kbd>Python 3.11</kbd>&nbsp; <kbd>MySQL 8.0</kbd>&nbsp; <kbd>v1.1</kbd>
 </p>
 
 </div>
 
 ---
 
-## 🎉 v1.0 阶段说明
+## 🎉 v1.1 阶段说明
 
-**当前阶段**：Iteration 3 已完成，系统具备完整的"提问 → 三引擎分析 → 论坛协作 → HOST 仲裁 → 多轮复跑 → 最终报告"闭环。
+**当前阶段**：Iteration 4 已完成，在 Iteration 3 的完整"提问 → 三引擎分析 → 论坛协作 → HOST 仲裁 → 多轮复跑 → 最终报告"闭环之上，补齐了用户账号与个性化画像。
 
 ### ✨ 本阶段交付
 
@@ -23,6 +23,7 @@
 3. **🎨 可视化配置页**：在线修改 LLM / 数据库 / 搜索 API / 调度参数，附带四项健康检查
 4. **💬 实时论坛**：基于 Socket.IO 推送专家发言、轮次标记与 HOST 仲裁卡片
 5. **📂 训练数据管理**：本地 Excel 手动导入，数据统一入 MySQL，支持增删改查
+6. **👤 用户账号与个性化画像**：注册 / 登录、8 字段个人档案，画像自动注入三个子引擎与最终报告
 
 ---
 
@@ -40,6 +41,7 @@
 - **📊 数据驱动**：运动科学家直接查询个人训练数据库，结论基于真实训练负荷
 - **🔁 条件复跑**：只在存在分歧时才追加一轮，兼顾结论质量与运行成本
 - **📄 模板化报告**：21 套中文报告模板自动选型，输出可离线打开的单文件 HTML
+- **👤 个性化分析**：登录用户填写 8 字段档案后，画像随提问进入三个引擎与最终报告
 - **🔌 轻量化设计**：纯 Python、模块化、兼容任意 OpenAI 格式的 LLM 接口
 
 ### ⚡ 技术栈
@@ -50,6 +52,7 @@
 | **Web 框架** | Flask（主应用）+ Streamlit（引擎运行界面） |
 | **LLM 接口** | Qwen-plus-latest、Qwen-max-3 |
 | **数据库** | MySQL 8.0+ / SQLAlchemy / PyMySQL |
+| **登录与会话** | Flask Session + Werkzeug 密码哈希 |
 | **搜索工具** | Tavily API、博查（Bocha）AI Search |
 | **前端** | HTML5、JavaScript、Socket.IO |
 
@@ -68,6 +71,8 @@
 | **MediaEngine** | 实用情报专家 | 博查 AI Search | Qwen-Plus-Latest | 赛事报名、装备、路线、天气等情报 |
 | **HOST（主持人）** | 总教练 | 论坛发言 + 仲裁 | Qwen-Plus-Latest | 汇总共识、识别分歧与盲区、决定复跑 |
 | **ReportEngine** | 报告生成器 | 模板选择 + HTML 生成 | Qwen-Max | 选型模板并生成最终 HTML 报告 |
+
+> 三位分析引擎在生成提示词前会读取当前登录用户的画像；未登录或未填写档案时自动使用默认画像，不影响原有分析流程。
 
 ### 🔄 系统架构图
 
@@ -123,7 +128,7 @@ flowchart LR
 
 | 环境 | 要求 | 说明 |
 |------|------|------|
-| **Python** | 3.11 | 推荐使用 Conda 环境管理 |
+| **Python** | 3.11 | 支持 Conda 或系统 Python + venv 两种方式（见部署流程） |
 | **MySQL** | 8.0+ | 字符集需为 utf8mb4 |
 
 #### 【2】申请 API 密钥
@@ -155,7 +160,9 @@ git clone https://github.com/xsz111-q/Run_assistant.git
 cd Run_assistant
 ```
 
-#### 2️⃣ 安装依赖
+#### 2️⃣ 安装依赖（强烈推荐使用conda）
+
+**方式 A：Conda 环境**
 
 ```bash
 conda create -n synapse_run python=3.11 -y
@@ -163,13 +170,32 @@ conda activate synapse_run
 pip install -r requirements.txt
 ```
 
+**方式 B：系统 Python**
+
+```bash
+# 确认系统 Python 为 3.11
+python --version
+
+# Windows PowerShell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+两种方式装入的依赖完全相同，后续步骤通用；只需在每次启动前激活对应的环境。
+
 #### 3️⃣ 初始化数据库
 
 ```sql
 CREATE DATABASE IF NOT EXISTS run DEFAULT CHARACTER SET utf8mb4;
 ```
 
-业务表由程序自动创建（`models/training_record.py` 的 `ensure_table`），无需手工建表。
+业务表由程序自动创建（`models/` 下各模块的 `ensure_table`），无需手工建表。
 
 #### 4️⃣ 配置 config.py
 
@@ -187,7 +213,10 @@ cp config.example.py config.py
 
 ```bash
 # 确保当前处于项目根目录，且已激活环境
-conda activate synapse_run
+conda activate synapse_run      # 方式 A
+.venv\Scripts\Activate.ps1    # 方式 B（Windows PowerShell）
+source .venv/bin/activate     # 方式 B（macOS / Linux）
+
 python app.py
 ```
 
@@ -203,9 +232,9 @@ python app.py
 ================================================================
 ```
 
-浏览器打开 **http://localhost:5000** 即进入主页。
+浏览器打开 **http://localhost:5000** 即进入登录页，注册并登录后进入主页。
 
-> 首次启动会自动创建 `logs/`、`final_reports/`、`data/` 等目录和数据库表，无需额外操作。
+> 首次启动会自动创建 `logs/`、`final_reports/`、`data/` 等目录和数据库表（含 `users`、`user_profiles`），无需额外操作。
 > 三个引擎进程（8501-8503）由主页提问时自动拉起，不需要手动启动。
 
 ---
@@ -234,6 +263,12 @@ python app.py
 
 导入按 `(开始时间, 运动类型, 时长, 距离)` 去重，重复上传不会产生重复数据。
 
+#### 【4】注册账号并填写个人档案
+
+1. 打开 **http://localhost:5000/auth/login**，切换到注册页创建账号（用户名唯一，密码至少 6 位并以哈希存储）
+2. 登录后进入 **http://localhost:5000/auth/profile** 填写档案：性别、年龄、职业、身高、体重、特殊疾病、个人时间安排、目标
+3. 保存后再次提问，三个引擎的提示词与最终报告都会带上该画像；档案可随时修改，留空则使用默认画像
+
 ---
 
 ### 📊 训练数据后台管理
@@ -258,7 +293,7 @@ streamlit run SingleEngineApp/media_app.py   --server.port 8503
 ```
 
 未设置 `RUN_QUERY` / `RUN_TASK_ID` 环境变量时，页面进入手动输入模式，直接点击运行即可；
-运行过程中页面会实时显示阶段输出。
+运行过程中页面会实时显示阶段输出。手动模式下如需带画像调试，可设置 `RUN_PERSONA` 环境变量，不设置则使用默认画像。
 
 ---
 
@@ -267,7 +302,9 @@ streamlit run SingleEngineApp/media_app.py   --server.port 8503
 ### 启动主应用
 
 ```bash
-conda activate synapse_run
+conda activate synapse_run      # 方式 A
+.venv\Scripts\Activate.ps1    # 方式 B（Windows PowerShell）
+source .venv/bin/activate     # 方式 B（macOS / Linux）
 python app.py
 ```
 
@@ -276,6 +313,8 @@ python app.py
 | 地址 | 说明 |
 |------|------|
 | http://localhost:5000 | 主页：提问、进度、论坛、仲裁、最终报告 |
+| http://localhost:5000/auth/login | 登录 / 注册 |
+| http://localhost:5000/auth/profile | 我的档案（8 项个性化信息） |
 | http://localhost:5000/training/ | 训练数据管理 |
 | http://localhost:5000/setup/ | 系统配置与健康检查 |
 | http://localhost:8501 / 8502 / 8503 | 三个引擎的 Streamlit 页面（提问后自动拉起） |
@@ -284,6 +323,8 @@ python app.py
 > 关闭页面会中断正在运行的引擎。
 
 ### 使用流程
+
+先登录账号，并可在「我的档案」补全个人信息；画像会随提问自动带入分析。
 
 1. 输入问题，点击「启动多智能体分析」
 2. 第 1 轮三引擎并行，论坛实时显示专家发言
@@ -408,14 +449,20 @@ Run_assistant/
 │   └── media_app.py
 │
 ├── routes/                        # Flask 路由
+│   ├── auth.py                    # 注册 / 登录 / 退出 / 档案接口
 │   ├── training_data.py           # 训练数据增删改查 + Excel 导入
 │   └── setup.py                   # 配置读写 + 健康检查
 │
-├── models/                        # 训练记录 ORM 模型
+├── models/                        # ORM 模型
+│   ├── training_record.py         # 训练记录表
+│   ├── user.py                    # users 表（账号、密码哈希）
+│   └── user_profile.py            # user_profiles 表（8 字段档案）
 ├── tests/                         # pytest 自动化验收用例（Issue #3–#6）
 ├── .github/workflows/tests.yml    # GitHub Actions：push / PR 自动跑 pytest
 ├── utils/                         # 进程管理、运行态、Excel 解析
+│   └── persona.py                 # 读取档案并生成用户画像
 ├── templates/                     # 主页、训练数据页、配置页
+│   └── auth/                      # 登录、注册、我的档案页
 │
 ├── logs/                          # 运行日志（git 忽略）
 │   ├── forum.log                  # 论坛发言
@@ -503,6 +550,8 @@ Run_assistant/
 
 | 内容 | 存储位置 |
 |------|---------|
+| 用户账号 | MySQL `run.users`（密码哈希、角色、最近登录时间） |
+| 用户档案 | MySQL `run.user_profiles`（8 字段个性化信息，一人一条） |
 | 训练记录 | MySQL `run.training_records_excel` |
 | 论坛发言 | `logs/forum.log`（每轮提问前清空） |
 | 调度状态 | `logs/orchestrator/{task_id}.json` |
@@ -519,5 +568,6 @@ Run_assistant/
 | Iter 1 | 三引擎骨架、训练数据页 | ✅ 完成 |
 | Iter 2 | 三引擎独立进程、论坛实时推送、HOST 发言、Excel 导入 | ✅ 完成 |
 | Iter 3 | 调度器多轮仲裁、报告引擎（21 套模板选型）、配置页、完整主页 | ✅ 完成 |
+| Iter 4 | 用户注册登录、8 字段档案、画像注入三引擎与最终报告、pytest + Actions | ✅ 完成 |
 
 数据源范围：仅本地 Excel 手动导入。
