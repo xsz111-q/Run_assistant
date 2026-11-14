@@ -128,8 +128,17 @@ flowchart LR
 
 | 环境 | 要求 | 说明 |
 |------|------|------|
-| **Python** | 3.11 | 支持 Conda 或系统 Python + venv 两种方式（见部署流程） |
+| **Python** | 3.11 | 支持 Conda 或系统 Python 两种方式（见部署流程） |
 | **MySQL** | 8.0+ | 字符集需为 utf8mb4 |
+
+**Conda 下载地址**（未安装 Conda 时先安装，二选一）：
+
+| 发行版 | 下载地址 | 说明 |
+|--------|---------|------|
+| **Miniconda** | https://docs.conda.io/projects/miniconda/en/latest/ | 体积小，仅含 conda 与 Python，够本项目使用 |
+| **Anaconda** | https://www.anaconda.com/download | 体积大，自带常用科学计算包，安装即用 |
+
+Windows 安装后从开始菜单打开 **Anaconda Prompt**（或 Miniconda Prompt）再执行后续命令；若勾选了 "Add to PATH"，也可直接在 PowerShell 中使用 `conda`。
 
 #### 【2】申请 API 密钥
 
@@ -162,9 +171,10 @@ cd Run_assistant
 
 #### 2️⃣ 安装依赖（强烈推荐使用conda）
 
-**方式 A：Conda 环境**
+**方式 A：Conda 环境**（安装包下载地址见 [前置准备 · 环境配置](#1环境配置)）
 
 ```bash
+conda --version                 # 能输出版本号说明 Conda 已就绪
 conda create -n synapse_run python=3.11 -y
 conda activate synapse_run
 pip install -r requirements.txt
