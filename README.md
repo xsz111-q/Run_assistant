@@ -140,9 +140,11 @@ flowchart LR
 
 Windows 安装后从开始菜单打开 **Anaconda Prompt**（或 Miniconda Prompt）再执行后续命令；若勾选了 "Add to PATH"，也可直接在 PowerShell 中使用 `conda`。
 
-#### 【2】申请 API 密钥
+#### 【2】API 密钥
 
-| API 服务 | 用途 | 申请地址 |
+本项目已内置课程专用的 Qwen、Tavily、博查 API Key，首次启动会自动写入 `config.py`，无需手动申请或复制配置文件。需要替换为自己的 Key 时，可在 `/setup/` 配置页修改。
+
+| API 服务 | 用途 | 自行申请地址（可选） |
 |---------|------|---------|
 | **阿里云 DashScope** | 子引擎、HOST、报告引擎 | https://dashscope.aliyun.com/ |
 | **Tavily** | 学术文献与理论检索 | https://www.tavily.com/ |
@@ -180,7 +182,7 @@ conda activate synapse_run
 pip install -r requirements.txt
 ```
 
-**方式 B：系统 Python**
+**方式 B：系统 Python + venv**
 
 ```bash
 # 确认系统 Python 为 3.11
@@ -199,27 +201,11 @@ pip install -r requirements.txt
 
 两种方式装入的依赖完全相同，后续步骤通用；只需在每次启动前激活对应的环境。
 
-#### 3️⃣ 初始化数据库
+#### 3️⃣ 准备 MySQL
 
-```sql
-CREATE DATABASE IF NOT EXISTS run DEFAULT CHARACTER SET utf8mb4;
-```
+请安装并启动 MySQL 8.0+，准备一个具有建库、建表权限的账号。无需预先创建 `run` 数据库或业务表，程序会在配置保存成功后自动创建。
 
-业务表由程序自动创建（`models/` 下各模块的 `ensure_table`），无需手工建表。
-
-#### 4️⃣ 配置 config.py
-
-```bash
-# Windows PowerShell
-Copy-Item config.example.py config.py
-# macOS / Linux
-cp config.example.py config.py
-```
-
-填写 `LLM_API_KEY`、`LLM_BASE_URL`、数据库连接、`TAVILY_API_KEY`、`BOCHA_WEB_SEARCH_API_KEY`。
-也可以启动后在 `/setup/` 页面在线配置。
-
-#### 5️⃣ 启动项目
+#### 4️⃣ 启动项目
 
 ```bash
 # 确保当前处于项目根目录，且已激活环境
@@ -242,9 +228,16 @@ python app.py
 ================================================================
 ```
 
-浏览器打开 **http://localhost:5000** 即进入登录页，注册并登录后进入主页。
+首次启动会自动将 `config.example.py` 复制为 `config.py`。浏览器打开 **http://localhost:5000**：数据库未配置或暂不可用时自动进入配置页，应用不会因此退出；数据库已连接时进入登录页。
 
-> 首次启动会自动创建 `logs/`、`final_reports/`、`data/` 等目录和数据库表（含 `users`、`user_profiles`），无需额外操作。
+#### 5️⃣ 在配置页完成初始化
+
+1. 访问 **http://localhost:5000/setup/**，填写 MySQL 主机、端口、账号、密码和数据库名（默认 `run`）
+2. 点击「保存配置」，程序会立即连接数据库，自动建库并创建 `users`、`user_profiles`、`training_records_excel` 三张表
+3. 页面显示「数据库连接正常」后，点击「前往注册」创建账号，再登录使用，**无需重启 Flask**
+4. 三个课程专用 API Key 已内置，可按需修改；点击「运行健康检查」可核对 LLM、MySQL、Tavily、博查连通性
+
+> 首次启动会自动创建 `logs/`、`final_reports/`、`data/` 等目录；数据库表在配置保存成功后创建。
 > 三个引擎进程（8501-8503）由主页提问时自动拉起，不需要手动启动。
 
 ---
@@ -261,7 +254,7 @@ python app.py
 配置页按「LLM 配置 / 数据库 / 搜索 API / 调度参数」分组展示，修改后点击「保存配置」：
 
 - 配置写回 `config.py` 并立即热重载
-- 端口、数据库连接等改动需重启 Flask 后生效
+- 数据库配置保存后立即连接、建库建表并切换，无需重启 Flask；端口变更仍需重启
 - 高级参数也可直接编辑项目根目录的 `config.py`
 
 #### 【3】导入训练数据
@@ -354,7 +347,7 @@ python app.py
 ### 自动化验收测试（pytest + GitHub Actions）
 
 `tests/` 下的 pytest 用例覆盖 Issue #3–#6 的验收标准（认证、档案、画像注入、报告画像），
-测试使用临时 SQLite，**不需要 MySQL 和任何 API Key**：
+以及数据库初始化与热切换；测试使用临时 SQLite，**不需要 MySQL 和任何 API Key**：
 
 ```bash
 # Windows PowerShell
@@ -362,10 +355,11 @@ Copy-Item config.example.py config.py
 # macOS / Linux
 cp config.example.py config.py
 
+python -m pip install "pytest<9"
 python -m pytest -q
 ```
 
-预期：`40 passed`。
+预期：`42 passed`。
 
 每次 push 与 pull request 都会在 GitHub Actions 上自动执行同一套用例，
 结果见仓库 **Actions → tests** 运行记录。

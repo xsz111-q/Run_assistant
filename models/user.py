@@ -10,7 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, DateTime
 
-from models.training_record import Base, engine
+from models.training_record import Base, get_engine
 
 
 class User(Base):
@@ -31,7 +31,7 @@ class User(Base):
                 'created_at': self.created_at.isoformat() if self.created_at else None}
 
 
-def ensure_table():
-    """按需建表（应用启动时调用）"""
-    Base.metadata.create_all(bind=engine, tables=[User.__table__])
+def ensure_table(engine=None):
+    """按需建表；可传入候选引擎（db_bootstrap 初始化时使用）"""
+    Base.metadata.create_all(bind=engine or get_engine(), tables=[User.__table__])
     return True

@@ -26,6 +26,13 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_ROOT))
 
+# 首次运行：没有 config.py 就从示例配置复制一份（含课程专用 API Key）
+_cfg_file = _ROOT / "config.py"
+_cfg_example = _ROOT / "config.example.py"
+if not _cfg_file.exists() and _cfg_example.exists():
+    import shutil
+    shutil.copyfile(_cfg_example, _cfg_file)
+
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 
 import config
@@ -51,10 +58,11 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(training_data_bp)
 app.register_blueprint(setup_bp)
 
-from models.user import ensure_table as ensure_user_table
-from models.user_profile import ensure_table as ensure_profile_table
-ensure_user_table()
-ensure_profile_table()
+# ---------- 数据库初始化（不阻断启动） ----------
+# 未配置 MySQL 时也能启动：页面会被引导到 /setup/，保存配置后自动建库建表并生效
+from utils import db_bootstrap
+
+db_bootstrap.refresh()
 
 
 # ---------- 登录守卫 ----------
@@ -64,6 +72,16 @@ _OPEN_PREFIXES = ('/auth/login', '/auth/register', '/auth/api/me', '/static')
 
 @app.before_request
 def _require_login():
+    # 数据库未就绪：配置页与静态资源放行，其余请求一律引导到配置页
+    if not db_bootstrap.is_ready():
+        if request.path.startswith('/setup') or request.path.startswith('/static'):
+            return None
+        if request.path.startswith('/api/') or request.is_json:
+            return jsonify({'success': False, 'need_setup': True,
+                            'message': '数据库未连接，请先在配置页完成设置',
+                            'error': db_bootstrap.last_error()}), 503
+        return redirect(url_for('setup.page'))
+
     if request.endpoint in PUBLIC_ENDPOINTS:
         return None
     if any(request.path.startswith(p) for p in _OPEN_PREFIXES):

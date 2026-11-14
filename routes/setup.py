@@ -17,6 +17,7 @@ sys.path.insert(0, str(_ROOT))
 
 import config
 from flask import Blueprint, jsonify, render_template, request
+from utils import db_bootstrap
 
 setup_bp = Blueprint("setup", __name__, url_prefix="/setup")
 
@@ -90,7 +91,12 @@ def page():
 
 @setup_bp.route("/api/config", methods=["GET"])
 def get_config():
-    return jsonify({"success": True, "groups": FIELDS, "values": _current_values()})
+    return jsonify({
+        "success": True,
+        "groups": FIELDS,
+        "values": _current_values(),
+        "database": {"ready": db_bootstrap.is_ready(), "error": db_bootstrap.last_error()},
+    })
 
 
 @setup_bp.route("/api/config", methods=["POST"])
@@ -104,9 +110,17 @@ def save_config():
         _write_config(updates)
     except Exception as e:
         return jsonify({"success": False, "message": f"保存失败：{e}"}), 400
+
+    # 保存后立即连接并建库建表；成功则全局会话热切换，无需重启 Flask
+    ready = db_bootstrap.refresh()
+    if ready:
+        message = "已保存，数据库连接正常，可直接前往注册/登录使用。"
+    else:
+        message = f"配置已保存，但数据库仍不可用：{db_bootstrap.last_error()}。请检查后重新保存。"
     return jsonify({
         "success": True,
-        "message": "已保存并热重载。端口/数据库连接等改动需重启 Flask 后生效。",
+        "message": message,
+        "database": {"ready": ready, "error": db_bootstrap.last_error()},
         "values": _current_values(),
     })
 

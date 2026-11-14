@@ -52,6 +52,6 @@ class UserProfile(Base):
         }
 
 
-def ensure_table():
-    """启动时建表（幂等；表已存在则跳过）。"""
-    Base.metadata.create_all(get_engine(), tables=[UserProfile.__table__])
+def ensure_table(engine=None):
+    """启动时建表（幂等；表已存在则跳过）。可传入候选引擎。"""
+    Base.metadata.create_all(engine or get_engine(), tables=[UserProfile.__table__])

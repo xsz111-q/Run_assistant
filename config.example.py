@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Run_assistant 配置文件示例（Iter 3）
-复制为 config.py 后填入自己的 Key
+首次启动自动复制为 config.py；课程专用 API Key 已内置，可在 /setup/ 修改
 """
 
 # ============================== 数据库配置 ==============================
@@ -18,15 +18,15 @@ EXCEL_DATA_DIR = "data"
 EXCEL_ALLOWED_EXT = ".xlsx"
 
 # ============================== LLM 配置 ==============================
-LLM_API_KEY = ""
+LLM_API_KEY = "sk-ws-H.YYMPXMY.4pO1.MEQCIEFa-8lQgKchn7f_0p8e2geDUc1iSy9eNG3QXbqdQpb4AiB_Mdq-Jx5bEkO2RJE8wt5Kz7O3QV9oOvcqX2LF7hchHg"
 LLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 DEFAULT_MODEL_NAME = "qwen-plus-latest"
 REPORT_MODEL_NAME  = "qwen-max"
 
 # ============================== 搜索 API ==============================
-TAVILY_API_KEY    = ""
-BOCHA_WEB_SEARCH_API_KEY = ""
+TAVILY_API_KEY    = "tvly-4co2nL-ZydVnbkgepTf6tGjFo7kQmcgXPaRf6P1vX1f7xAtsQ"
+BOCHA_WEB_SEARCH_API_KEY = "sk-f343ba8ddad144ca872e35daedb1e049"
 
 # ============================== 端口分配 ==============================
 FLASK_PORT        = 5000

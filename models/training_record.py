@@ -7,7 +7,7 @@
 不再有 Keep / Garmin 数据源。
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, BigInteger
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, BigInteger, URL
 from sqlalchemy.dialects.mysql import DECIMAL
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -18,10 +18,17 @@ Base = declarative_base()
 
 def get_engine():
     """获取数据库引擎（每次调用读取最新 config）"""
+    url = URL.create(
+        "mysql+pymysql",
+        username=config.DB_USER,
+        password=config.DB_PASSWORD,
+        host=config.DB_HOST,
+        port=int(config.DB_PORT),
+        database=config.DB_NAME,
+        query={"charset": config.DB_CHARSET},
+    )
     return create_engine(
-        f"mysql+pymysql://{config.DB_USER}:{config.DB_PASSWORD}"
-        f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
-        f"?charset={config.DB_CHARSET}",
+        url,
         pool_pre_ping=True,
         pool_recycle=3600,
         echo=False,
@@ -77,9 +84,10 @@ class TrainingRecordExcel(Base):
         }
 
 
-def ensure_table():
-    """按需建表（首次导入前调用）"""
-    Base.metadata.create_all(bind=engine, tables=[TrainingRecordExcel.__table__])
+def ensure_table(engine=None):
+    """按需建表；可传入候选引擎（db_bootstrap 初始化时使用）"""
+    Base.metadata.create_all(bind=engine or get_engine(),
+                             tables=[TrainingRecordExcel.__table__])
     return True
 
 
